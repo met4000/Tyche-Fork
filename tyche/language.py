@@ -969,7 +969,7 @@ class Atom(ADLNode):
             ))
 
         for ch in symbol[1:]:
-            if ch != '_' and not ch.isalnum:
+            if ch != '_' and not ch.isalnum():
                 raise ValueError("{} symbols can only contain alpha-numeric or underscore characters{}".format(
                     symbol_type_name, context_suffix
                 ))

@@ -12,6 +12,55 @@ class TestLanguage(unittest.TestCase):
     def tearDown(self):
         pass
 
+    def test_concept_symbols(self):
+        """
+        Tests concept symbol validity checking.
+        """
+        # Valid names, should not error
+
+        self.assertIsInstance(Concept("a"), Concept)
+
+        self.assertIsInstance(Concept("abc"), Concept)
+        self.assertIsInstance(Concept("aBc"), Concept)
+
+        self.assertIsInstance(Concept("a2C"), Concept)
+
+        self.assertIsInstance(Concept("ab_cd"), Concept)
+        self.assertIsInstance(Concept("a_2c__D"), Concept)
+
+
+        # Invalid names, should error
+
+        # `None` symbol
+        with self.assertRaisesRegex(ValueError, "symbols cannot be None"):
+            Concept(None)
+
+        # empty string symbol
+        with self.assertRaisesRegex(ValueError, "symbols cannot be empty strings"):
+            self.assertNotIsInstance(Concept(""), Concept)
+
+        # non-lowercase starting character
+        starting_char_error_type = ValueError
+        starting_char_error_regex = "symbols must start with a lowercase letter"
+        with self.assertRaisesRegex(starting_char_error_type, starting_char_error_regex):
+            self.assertNotIsInstance(Concept("_a1"), Concept)
+        with self.assertRaisesRegex(starting_char_error_type, starting_char_error_regex):
+            self.assertNotIsInstance(Concept("1a"), Concept)
+        with self.assertRaisesRegex(starting_char_error_type, starting_char_error_regex):
+            self.assertNotIsInstance(Concept("A1"), Concept)
+        
+        # invalid characters
+        invalid_char_error_type = ValueError
+        invalid_char_error_regex = "symbols can only contain alpha-numeric or underscore characters"
+        with self.assertRaisesRegex(invalid_char_error_type, invalid_char_error_regex):
+            self.assertNotIsInstance(Concept("abc!"), Concept)
+        with self.assertRaisesRegex(invalid_char_error_type, invalid_char_error_regex):
+            self.assertNotIsInstance(Concept("ab3_\u22A4"), Concept)
+
+        # multiple problems
+        with self.assertRaises((starting_char_error_type, invalid_char_error_type)):
+            self.assertNotIsInstance(Concept("_!"), Concept)
+
     def test_equals(self):
         """
         Tests equality checking of formulas.
