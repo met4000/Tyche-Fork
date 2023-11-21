@@ -502,7 +502,7 @@ class UniformDist(ContinuousProbDist):
 
 class NormalDist(ContinuousProbDist):
     """
-    A normal probability distribution centered around `mean` with a
+    A normal probability distribution centred around `mean` with a
     standard deviation of `std_dev`.
     """
     def __init__(self, mean: float, std_dev: float):

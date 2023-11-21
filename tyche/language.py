@@ -675,8 +675,8 @@ def _format_dict(
 # This is used to allow passing names (e.g. "x", "y", etc...) directly
 # to functions that require a concept or role. These names will then
 # automatically be converted to an Atom or Role object.
-CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str])
-CompatibleWithRole: type = NewType("CompatibleWithRole", Union['Role', str])
+CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str]) # type: ignore
+CompatibleWithRole: type = NewType("CompatibleWithRole", Union['Role', str]) # type: ignore
 
 
 class TycheContext:
