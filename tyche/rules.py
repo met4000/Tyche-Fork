@@ -2,7 +2,7 @@ from __future__ import annotations
 from math import isnan
 from typing import Callable, Dict, Final, NewType, Optional, Type, TypeVar, Union, cast
 
-from tyche.language import CompatibleWithADLNode, ADLNode, Atom, Concept, TycheContext as _TycheContext, TycheLanguageException
+from tyche.language import CompatibleWithADLNode as _CompatibleWithADLNode, ADLNode as _ADLNode, Atom, Concept, Constant, TycheContext as _TycheContext, TycheLanguageException
 from tyche.individuals import Individual as _Individual, IndividualPropertyDecorator, SelfType_IndividualPropertyDecorator, TycheAccessorStore, TycheIndividualsException
 from tyche.references import GuardedSymbolReference, SymbolReference
 
@@ -11,8 +11,26 @@ from tyche.references import GuardedSymbolReference, SymbolReference
 class TycheContext(_TycheContext):
     def get_rule(self, symbol: str) -> RuleValue:
         raise NotImplementedError("get_rule is unimplemented for " + type(self).__name__)
+    
+CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str, float]) # type: ignore
 
-# TODO CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str]) # type: ignore
+class ADLNode(_ADLNode):
+    @staticmethod
+    def cast(node: CompatibleWithADLNode) -> 'ADLNode':
+        """
+        This provides the canonicalization of several supported ADL representations
+        into ADLNode objects. For example, strings are automatically considered to
+        represent concepts, and as such they may be converted into concept nodes
+        automatically by this function.
+        """
+        if isinstance(node, _ADLNode):
+            return node
+        elif isinstance(node, str):
+            return Concept(node)
+        elif isinstance(node, float):
+            return Constant(str(node), node)
+        else:
+            raise TycheLanguageException("Incompatible node type {}".format(type(node).__name__))
 
 
 # ! additions via overrides to 'individuals'
