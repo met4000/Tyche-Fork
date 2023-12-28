@@ -747,7 +747,7 @@ class NoLikelierThan(RuleValue):
         if epsilon is None:
             epsilon = self.epsilon
         
-        return lhs_value < rhs_value + epsilon / 2
+        return lhs_value - rhs_value < epsilon
     
     # TODO override generation of equation to include the free variable
 
