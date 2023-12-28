@@ -6,11 +6,12 @@ can be used as contexts to evaluate aleatoric description logic (ADL)
 sentences. This module also contains many learning strategies that may
 be used to update your belief models based upon ADL observations.
 """
-from typing import TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from math import isnan
+from typing import Dict, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 
-from tyche.language import ExclusiveRoleDist, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
+from tyche.language import CompatibleWithRule, ExclusiveRoleDist, Rule, RuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
     ReferenceBackedRole, RoleDist
 
@@ -26,6 +27,9 @@ TycheRoleValue = TypeVar("TycheRoleValue", bound=RoleDist)
 # may be accessed by Tyche formulas.
 TycheConceptField = TypeVar("TycheConceptField", float, int, bool)
 TycheRoleField = TypeVar("TycheRoleField", bound=RoleDist)
+
+TycheRuleValue = TypeVar("TycheRuleValue", bound=RuleValue)
+TycheRuleField = TypeVar("TycheRuleField", bound=RuleValue)
 
 
 class TycheIndividualsException(Exception):
@@ -287,6 +291,26 @@ class TycheRoleDecorator(IndividualPropertyDecorator[TycheRoleValue, 'RoleLearni
     def get(obj_type: Type['Individual']) -> TycheAccessorStore:
         return TycheAccessorStore.get_or_populate_for(
             obj_type, TycheRoleDecorator, TycheRoleDecorator.field_type_hint, "role"
+        )
+    
+class TycheRuleDecorator(IndividualPropertyDecorator[TycheRuleValue, None]):
+    """
+    Not strictly used, but defined to make implementing fields easier,
+    and in case method support is added later.
+    """
+    field_type_hint: Final[type] = TycheRuleField
+
+    def __init__(
+            self: SelfType_IndividualPropertyDecorator,
+            fn: Callable[[], TycheRuleValue],
+            *, symbol: Optional[str] = None):
+
+        super().__init__("rule", fn, symbol=symbol)
+
+    @staticmethod
+    def get(obj_type: Type['Individual']) -> TycheAccessorStore:
+        return TycheAccessorStore.get_or_populate_for(
+            obj_type, TycheRuleDecorator, TycheRuleDecorator.field_type_hint, "rule"
         )
 
 
@@ -634,6 +658,7 @@ class Individual(TycheContext):
     name: Optional[str]
     concepts: TycheAccessorStore
     roles: TycheAccessorStore
+    rules: TycheAccessorStore
     concept_learning_strats: dict[str, ConceptLearningStrategy]
     role_learning_strats: dict[str, RoleLearningStrategy]
 
@@ -642,6 +667,7 @@ class Individual(TycheContext):
         self.name = name
         self.concepts = TycheConceptDecorator.get(type(self))
         self.roles = TycheRoleDecorator.get(type(self))
+        self.rules = TycheRuleDecorator.get(type(self))
 
         # Initialise all the learning strategies for this individual.
         self.concept_learning_strats = {}
@@ -673,12 +699,46 @@ class Individual(TycheContext):
     def eval_role(self, role: CompatibleWithRole) -> RoleDist:
         return Role.cast(role).direct_eval(self)
 
+    def eval_rule(self, rule: CompatibleWithRule) -> RuleValue:
+        return Rule.cast(rule).direct_eval(self)
+    
+    def check_rule(self, rule: CompatibleWithRule, *, epsilon: Optional[float] = None) -> bool:
+        """
+        TODO description
+        If not specified, uses the default epsilon value for the rule.
+        `epsilon` should be a valid float between 0 and 1 (inclusive).
+        """
+        if epsilon is not None:
+            epsilon = float(epsilon)
+            if epsilon < 0 or epsilon > 1 or isnan(epsilon):
+                raise ValueError(f"Expected epsilon to be between 0 and 1 (inclusive), but got '{epsilon}'")
+        
+        return self.eval_rule(rule).direct_eval(self, epsilon=epsilon)
+    
+    # ? should probably rename to 'is_consistent' or something
+    def check_rules(self, *, epsilon: Optional[float | Dict[CompatibleWithRule, float | None]] = None) -> bool:
+        """
+        TODO description
+        Runs `check_rule` on every rule.
+        """
+        def get_epsilon(rule: CompatibleWithRule) -> float:
+            if isinstance(epsilon, Dict):
+                return epsilon.get(rule)
+            return epsilon
+        
+        for rule_symbol in self.rules.all_symbols:
+            if not self.check_rule(rule_symbol, epsilon=get_epsilon(rule_symbol)):
+                return False
+            
+        return True
+
     @staticmethod
     def describe(obj_type: Type['Individual']) -> str:
-        """ Returns a string describing the concepts and roles of the given Individual type. """
+        """ Returns a string describing the concepts, roles, and rules of the given Individual type. """
         atoms = sorted(list(Individual.get_concept_names(obj_type)))
         roles = sorted(list(Individual.get_role_names(obj_type)))
-        return f"{obj_type.__name__} {{atoms={atoms}, roles={roles}}}"
+        rules = sorted(list(Individual.get_rule_names(obj_type)))
+        return f"{obj_type.__name__} {{atoms={atoms}, roles={roles}, rules={rules}}}"
 
     @staticmethod
     def get_concept_names(obj_type: Type['Individual']) -> set[str]:
@@ -689,6 +749,11 @@ class Individual(TycheContext):
     def get_role_names(obj_type: Type['Individual']) -> set[str]:
         """ Returns all the role names of the given Individual type. """
         return TycheRoleDecorator.get(obj_type).all_symbols
+    
+    @staticmethod
+    def get_rule_names(obj_type: Type['Individual']) -> set[str]:
+        """ Returns all the rule names of the given Individual type. """
+        return TycheRuleDecorator.get(obj_type).all_symbols
 
     @classmethod
     def coerce_concept_value(cls: type, value: any) -> float:
@@ -745,6 +810,25 @@ class Individual(TycheContext):
     def get_role_reference(self, symbol: str) -> SymbolReference[RoleDist]:
         ref = self.roles.get_reference(symbol)
         coerced_ref = GuardedSymbolReference(ref, self.coerce_role_value, self.coerce_role_value)
+        return coerced_ref.bake(self)
+
+    @classmethod
+    def coerce_rule_value(cls: type, value: any) -> RuleValue:
+        if isinstance(value, RuleValue):
+            return value
+
+        raise TycheIndividualsException(
+            f"Error in {cls.__name__}: Rule values must be of type "
+            f"{type(RuleValue).__name__}, not {type(value).__name__}"
+        )
+
+    def get_rule(self, symbol: str) -> RuleValue:
+        value = self.rules.get(self, symbol)
+        return self.coerce_rule_value(value)
+
+    def get_rule_reference(self, symbol: str) -> SymbolReference[RuleValue]:
+        ref = self.rules.get_reference(symbol)
+        coerced_ref = GuardedSymbolReference(ref, self.coerce_rule_value, self.coerce_rule_value)
         return coerced_ref.bake(self)
 
     def _observe_expectation(self, expectation: Expectation, likelihood: float, learning_rate: float):
@@ -844,8 +928,15 @@ class Individual(TycheContext):
             role_values.append(f"{role_symbol}={role.to_str(detail_lvl=sub_detail_lvl, indent_lvl=indent_lvl)}")
         role_values.sort()
 
+        # Key-values of rules.
+        rule_values = []
+        for rule_symbol in self.rules.all_symbols:
+            rule = self.get_rule(rule_symbol)
+            rule_values.append(f"{rule_symbol}={rule.to_str(detail_lvl=sub_detail_lvl, tyche_context=self)}")
+        rule_values.sort()
+
         name = self.name if self.name is not None else ""
-        key_values = ", ".join(concept_values + role_values)
+        key_values = ", ".join(concept_values + role_values + rule_values)
         return f"{name}({key_values})"
 
 

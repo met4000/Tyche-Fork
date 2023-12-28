@@ -2,6 +2,8 @@
 This module contains the classes for representing aleatoric description
 logic (ADL) sentences, and the maths for their evaluation.
 """
+from __future__ import annotations
+from math import isnan
 from typing import Final, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
 
 import numpy as np
@@ -672,11 +674,90 @@ def _format_dict(
     return f"{prefix}{join_by.join(key_values)}{suffix}"
 
 
+class RuleValue:
+    """
+    TODO description
+    Base class for ADL T-Book rules, represented as an (in)equality between two ADLNodes.
+    """
+
+    # 1e-12 was chosen as values are (inclusively) between 0 and 1, and 0.1 + 0.2 gives an error of about 4e-17
+    # ? should there be a non-global way to define this default value, e.g. instead per TycheContext # ! TODO have a look at IEEE
+    DEFAULT_EPSILON = 1e-12
+
+    def __init__(self, LHS: CompatibleWithADLNode, RHS: CompatibleWithADLNode, epsilon: float, relation_symbol: str) -> None:
+        """
+        `epsilon` should be a valid float between 0 and 1 (inclusive).
+        """
+        self.LHS = ADLNode.cast(LHS)
+        self.RHS = ADLNode.cast(RHS)
+
+        self.epsilon = float(epsilon)
+        if self.epsilon < 0 or self.epsilon > 1 or isnan(self.epsilon):
+            raise ValueError(f"Expected epsilon to be between 0 and 1 (inclusive), but got '{self.epsilon}'")
+        
+        self.relation_symbol = str(relation_symbol)
+
+    def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
+        raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
+    
+    def __str__(self) -> str:
+        return self.to_str()
+    
+    # ? TODO indent level
+    def to_str(self, *, detail_lvl: int = 1, tyche_context: Optional[TycheContext] = None) -> str:
+        if detail_lvl <= 0:
+            return f"<{type(self).__name__}>"
+
+        lhs_str = str(self.LHS)
+        rhs_str = str(self.RHS)
+
+        if detail_lvl > 1 and tyche_context is not None:
+            lhs_str = f"{tyche_context.eval(self.LHS):.3f} = {lhs_str}"
+            rhs_str = f"{rhs_str} = {tyche_context.eval(self.RHS):.3f}"
+
+        return f"({lhs_str} {self.relation_symbol} {rhs_str})"
+
+class AsLikelyAs(RuleValue):
+    def __init__(self, LHS: CompatibleWithADLNode, RHS: CompatibleWithADLNode,
+                 *, epsilon: float = RuleValue.DEFAULT_EPSILON) -> None:
+        super().__init__(LHS, RHS, epsilon, "\u2248") # ≈
+    
+    def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
+        lhs_value = context.eval(self.LHS)
+        rhs_value = context.eval(self.RHS)
+
+        if epsilon is None:
+            epsilon = self.epsilon
+        
+        return abs(lhs_value - rhs_value) < epsilon
+
+class NoLikelierThan(RuleValue):
+    def __init__(self, LHS: CompatibleWithADLNode, RHS: CompatibleWithADLNode,
+                 *, epsilon: float = RuleValue.DEFAULT_EPSILON, free_variable: Optional[FreeVariable] = None) -> None:
+        super().__init__(LHS, RHS, epsilon, "\u227C") # ≼
+
+        if free_variable is None:
+            free_variable = FreeVariable()
+        self.free_variable = free_variable
+
+    def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
+        lhs_value = context.eval(self.LHS)
+        rhs_value = context.eval(self.RHS)
+
+        if epsilon is None:
+            epsilon = self.epsilon
+        
+        return lhs_value < rhs_value + epsilon / 2
+    
+    # TODO override generation of equation to include the free variable
+
+
 # This is used to allow passing names (e.g. "x", "y", etc...) directly
 # to functions that require a concept or role. These names will then
 # automatically be converted to an Atom or Role object.
-CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str]) # type: ignore
+CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str, float]) # type: ignore
 CompatibleWithRole: type = NewType("CompatibleWithRole", Union['Role', str]) # type: ignore
+CompatibleWithRule: type = NewType("CompatibleWithRule", Union['Rule', str]) # type: ignore
 
 
 class TycheContext:
@@ -724,6 +805,13 @@ class TycheContext:
         given symbol, without modification by the context.
         """
         raise NotImplementedError("get_role is unimplemented for " + type(self).__name__)
+
+    def get_rule(self, symbol: str) -> RuleValue:
+        """
+        Gets the rule definition of the rule with the
+        given symbol, without modification by the context.
+        """
+        raise NotImplementedError("get_rule is unimplemented for " + type(self).__name__)
 
     def get_concept_reference(self, symbol: str) -> BakedSymbolReference[float]:
         """
@@ -793,6 +881,8 @@ class ADLNode:
             return node
         elif isinstance(node, str):
             return Concept(node)
+        elif isinstance(node, float):
+            return Constant(str(node), node)
         else:
             raise TycheLanguageException("Incompatible node type {}".format(type(node).__name__))
 
@@ -1027,6 +1117,28 @@ ALWAYS: Final[Constant] = Constant("\u22A4", 1)
 NEVER: Final[Constant] = Constant("\u22A5", 0)
 
 
+# * problematic with evaluating rules if allowed to be general - should only be used at
+# * the top level of a rule, and the rule should have custom evaluation to avoid trying
+# * to eval the free variable
+class FreeVariable(Atom):
+    global_variable_count = 0
+
+    """
+    TODO description
+    Used by rules to represent `a <= b` as `a * _free_var = b` (i.e. as an equality).
+    Cannot (and should not) be evaluated.
+    """
+    def __init__(self, symbol: Optional[str] = None) -> None:
+        if symbol is None:
+            symbol = str(FreeVariable.global_variable_count)
+            FreeVariable.global_variable_count += 1
+        
+        super().__init__(f"_free_variable${symbol}", special_symbol=True)
+
+    def direct_eval(self, context: TycheContext) -> float:
+        raise TycheLanguageException(f"Instances of {type(self).__name__} cannot be evaluated")
+
+
 class Role:
     """
     Represents the relationships between contexts.
@@ -1101,6 +1213,41 @@ class ReferenceBackedRole(Role):
     def eval_reference(self, context: TycheContext) -> BakedSymbolReference[RoleDist]:
         """ Evaluates to a mutable reference to the value of this role. """
         return self.value_ref.bake(context)
+    
+
+class Rule:
+    """
+    TODO description
+    Represents rules restricting possible values (ADL T-Book rules).
+    """
+    def __init__(self, symbol: str, *, special_symbol: bool = False) -> None:
+        if not special_symbol:
+            Concept.check_symbol(symbol, symbol_type_name=type(self).__name__)
+        
+        self.symbol = symbol
+
+    @staticmethod
+    def cast(rule: CompatibleWithRule) -> Rule:
+        if isinstance(rule, Rule):
+            return rule
+        elif isinstance(rule, str):
+            return Rule(rule)
+        else:
+            raise TycheLanguageException("Incompatible rule type {}".format(type(rule).__name__))
+
+    def __str__(self):
+        return self.symbol
+    
+    def __hash__(self) -> int:
+        return str(self).__hash__()
+    
+    def __eq__(self, other) -> bool:
+        return type(self) == type(other) and self.symbol == cast('Rule', other).symbol
+    
+    def direct_eval(self, context: TycheContext) -> RuleValue:
+        return context.get_rule(self.symbol)
+    
+    # ? TODO eval_reference
 
 
 class Conditional(ADLNode):
