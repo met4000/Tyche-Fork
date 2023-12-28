@@ -1010,6 +1010,33 @@ class ADLNode:
         i.e., this performs a logical OR operation on this node and the given node.
         """
         return ALWAYS.when(self).otherwise(node)
+    
+    def as_likely_as(self, node: CompatibleWithADLNode, *, epsilon: Optional[float] = None) -> AsLikelyAs:
+        """
+        Produces a rule requiring this node to be as likely as the given node (self ≈ node).
+        i.e., a wrapper for the AsLikelyAs constructor.
+        If set, the optional parameters will be passed to the constructor.
+        """
+        # TODO check if python has a nice way to pass non-None keyword params
+        kwargs = {}
+        if epsilon is not None:
+            kwargs['epsilon'] = epsilon
+        return AsLikelyAs(self, node, **kwargs)
+    
+    def no_likelier_than(self, node: CompatibleWithADLNode,
+                         *, epsilon: Optional[float] = None, free_variable: Optional[FreeVariable] = None) -> NoLikelierThan:
+        """
+        Produces a rule requiring this node to be no likelier than the given node (self ≼ node).
+        i.e., a wrapper for the NoLikelierThan constructor.
+        If set, the optional parameters will be passed to the constructor.
+        """
+        # TODO check if python has a nice way to pass non-None keyword params
+        kwargs = {}
+        if epsilon is not None:
+            kwargs['epsilon'] = epsilon
+        if free_variable is not None:
+            kwargs['free_variable'] = free_variable
+        return NoLikelierThan(self, node, **kwargs)
 
     '''
     Ideas for other inline operators to define:
