@@ -1186,7 +1186,7 @@ class Constant(Atom):
     def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
         value = str(self.probability)
         expr = value if simplify else f"({value})"
-        return (expr, {})
+        return (expr, set())
 
 
 ALWAYS: Final[Constant] = Constant("\u22A4", 1)
