@@ -1,4 +1,5 @@
 from __future__ import annotations
+from concurrent.futures import Future
 import logging
 from typing import List, Optional
 
@@ -20,14 +21,16 @@ class TycheEquationSolver:
     def __exit__(self):
         raise NotImplementedError("__exit__ is unimplemented for " + type(self).__name__)
     
-    def are_exprs_satisfiable(self, exprs: List[str], vars: List[str]) -> bool:
+    def are_exprs_satisfiable_future(self, exprs: List[str], vars: List[str]) -> Future[bool]:
         """
         Should return True iff there exists some solution to
         the given expressions over the given variables.
         """
         raise NotImplementedError("__exit__ is unimplemented for " + type(self).__name__)
+    
+    def are_exprs_satisfiable(self, exprs: List[str], vars: List[str]) -> bool:
+        return self.are_exprs_satisfiable_future(exprs, vars).result()
 
-# todo use 'future' versions for computations
 class TycheMathematicaSolver(TycheEquationSolver):
     """
     TODO documentation
@@ -96,19 +99,22 @@ class TycheMathematicaSolver(TycheEquationSolver):
             self.restart_mathematica_session()
         return self.session
     
-    def are_exprs_satisfiable(self, exprs: List[str], vars: List[str]) -> bool:
+    def are_exprs_satisfiable_future(self, exprs: List[str], vars: List[str]) -> Future[bool]:
         exprs_str = " && ".join([f"({expr})" for expr in exprs])
         vars_str = f'{{{", ".join([f"({var})" for var in vars])}}}'
 
         solver_in = wlexpr(f"Resolve[Exists[{vars_str}, {exprs_str}], Reals]")
+        solver_future = self.get_mathematica_session().evaluate_wrap_future(solver_in, timeout=self.evaluation_timeout_s)
 
-        solver_out: WolframKernelEvaluationResult
-        solver_out = self.get_mathematica_session().evaluate_wrap(solver_in, timeout=self.evaluation_timeout_s)
-
-        solver_result = solver_out.result
-        if not isinstance(solver_result, bool):
-            raise TycheSolversException(
-                f"Error in {type(self).__name__}: Equation solver result in unknown format"
-            )
+        future: Future[bool] = Future()
+        def fn(finished_future: Future):
+            solver_out: WolframKernelEvaluationResult = finished_future.result()
+            solver_result = solver_out.result
+            if not isinstance(solver_result, bool):
+                raise TycheSolversException(
+                    f"Error in {type(self).__name__}: Equation solver result in unknown format"
+                )
+            future.set_result(bool(solver_result))
         
-        return bool(solver_result)
+        solver_future.add_done_callback(fn)
+        return future
