@@ -1,3 +1,4 @@
+import logging
 from tyche.individuals import Individual as Individual, TycheConceptField, TycheRuleField
 from tyche.language import Concept, NoLikelierThan
 from tyche.solvers import TycheMathematicaSolver
@@ -32,6 +33,8 @@ print(f"Simplified satisfiability equations for {A.__name__}:")
 print(Individual.get_satisfiability_equations(A, simplify=True))
 
 print()
+
+logging.disable(logging.WARNING)
 
 with Individual.set_solver(TycheMathematicaSolver()):
     print(f"Satisfiability of {A.__name__}: " + ("satisfiable" if Individual.are_rules_satisfiable(A) else "unsatisfiable"))
