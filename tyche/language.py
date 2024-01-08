@@ -734,22 +734,22 @@ class AsLikelyAs(RuleValue):
 class NoLikelierThan(RuleValue):
     def __init__(self, LHS: CompatibleWithADLNode, RHS: CompatibleWithADLNode,
                  *, epsilon: float = RuleValue.DEFAULT_EPSILON, free_variable: Optional[FreeVariable] = None) -> None:
-        super().__init__(LHS, RHS, epsilon, "\u227C") # ≼
-
         if free_variable is None:
             free_variable = FreeVariable()
         self.free_variable = free_variable
 
+        self.raw_LHS = LHS
+        lhs_with_free_var = LHS & free_variable
+        super().__init__(lhs_with_free_var, RHS, epsilon, "\u227C") # ≼
+
     def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
-        lhs_value = context.eval(self.LHS)
+        lhs_value = context.eval(self.raw_LHS) # ignore free variable
         rhs_value = context.eval(self.RHS)
 
         if epsilon is None:
             epsilon = self.epsilon
         
         return lhs_value - rhs_value < epsilon
-    
-    # TODO override generation of equation to include the free variable
 
 
 # This is used to allow passing names (e.g. "x", "y", etc...) directly
