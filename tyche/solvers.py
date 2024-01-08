@@ -65,7 +65,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
         self.session.start(block=True, timeout=self.connection_timeout_s)
 
     def get_mathematica_session(self) -> WolframLanguageSession:
-        if self.session is None or not self.session.ensure_started():
+        if self.session is None or not self.session.started:
             self.restart_mathematica_session()
         return self.session
     
