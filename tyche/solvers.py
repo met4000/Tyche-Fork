@@ -20,6 +20,10 @@ class TycheEquationSolver:
         raise NotImplementedError("__exit__ is unimplemented for " + type(self).__name__)
     
     def are_exprs_satisfiable(self, exprs: List[str], vars: List[str]) -> bool:
+        """
+        Should return True iff there exists some solution to
+        the given expressions over the given variables.
+        """
         raise NotImplementedError("__exit__ is unimplemented for " + type(self).__name__)
 
 # todo use 'future' versions for computations
@@ -65,7 +69,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
             self.restart_mathematica_session()
         return self.session
     
-    def are_exprs_satisfiable(self, exprs, vars) -> bool:
+    def are_exprs_satisfiable(self, exprs: List[str], vars: List[str]) -> bool:
         exprs_str = " && ".join([f"({expr})" for expr in exprs])
         vars_str = f'{{{", ".join([f"({var})" for var in vars])}}}'
 
