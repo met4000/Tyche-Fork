@@ -7,7 +7,7 @@ sentences. This module also contains many learning strategies that may
 be used to update your belief models based upon ADL observations.
 """
 from math import isnan
-from typing import Dict, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Dict, List, Set, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 
@@ -731,6 +731,35 @@ class Individual(TycheContext):
                 return False
             
         return True
+    
+    @staticmethod
+    def get_class_rule(obj_type: type['Individual'], symbol: str) -> RuleValue:
+        """
+        TODO sanity check for using the class as the object for the accessor store
+        """
+        value = TycheRuleDecorator.get(obj_type).get(obj_type, symbol)
+        return obj_type.coerce_rule_value(value)
+    
+    @staticmethod
+    def get_satisfiability_equations(obj_type: type['Individual'], *, simplify: bool = False) -> List[str]:
+        """
+        TODO documentation
+        """
+        eqs = []
+        vars: Set[str] = set()
+
+        for rule_symbol in Individual.get_rule_names(obj_type):
+            rule = Individual.get_class_rule(obj_type, rule_symbol)
+            rule_eq, rule_vars = rule.as_equation(simplify = simplify)
+            eqs.append(rule_eq)
+            vars.update(rule_vars)
+        
+        var_eqs = []
+        for var in vars:
+            var_str = var if simplify else f"({var})"
+            var_eqs.append(f"0 <= {var_str} <= 1")
+        
+        return [*eqs, *var_eqs]
 
     @staticmethod
     def describe(obj_type: Type['Individual']) -> str:

@@ -4,7 +4,7 @@ logic (ADL) sentences, and the maths for their evaluation.
 """
 from __future__ import annotations
 from math import isnan
-from typing import Final, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
+from typing import Final, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
 
 import numpy as np
 
@@ -674,6 +674,10 @@ def _format_dict(
     return f"{prefix}{join_by.join(key_values)}{suffix}"
 
 
+# ! using a string to represent the polynomial, for now
+EquationExpression = Tuple[str, Set[str]]
+Equation = Tuple[str, Set[str]]
+
 class RuleValue:
     """
     TODO description
@@ -699,6 +703,15 @@ class RuleValue:
 
     def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
+    
+    def as_equation(self, *, simplify: bool = False) -> Equation:
+        lhs_expr, lhs_vars = self.LHS.as_equation_expression(simplify = simplify)
+        rhs_expr, rhs_vars = self.RHS.as_equation_expression(simplify = simplify)
+
+        eq = f"{lhs_expr} == {rhs_expr}"
+        vars = set.union(lhs_vars, rhs_vars)
+
+        return (eq, vars)
     
     def __str__(self) -> str:
         return self.to_str()
@@ -941,6 +954,17 @@ class ADLNode:
         contexts.
         """
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
+    
+    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+        """
+        TODO documentation
+        Returns a string representing the equation.
+
+        If simplify is True, brackets will be omitted and expressions simplified
+        where likely safe (identical behaviour not guaranteed). # ! todo verify, if possible.
+        If False, then the returned value should contain brackets wrapping the expression.
+        """
+        raise NotImplementedError("as_equation is unimplemented for " + type(self).__name__)
 
     def normal_form(self) -> 'ADLNode':
         """
@@ -1102,6 +1126,20 @@ class Atom(ADLNode):
 
     def __lt__(self, other) -> bool:
         raise TycheLanguageException("not yet implemented")
+    
+    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+        """
+        TODO deal with unsafe atom names (e.g. special chars)
+        """
+        var = self.symbol
+
+        try:
+            Concept.check_symbol(var)
+        except ValueError:
+            raise TycheLanguageException(f"special character in variable names not yet supported (`name`: `{var}`)")
+        
+        expr = var if simplify else f"({var})"
+        return (expr, {var})
 
     def normal_form(self):
         return self
@@ -1122,6 +1160,12 @@ class Concept(Atom):
 
     def direct_eval(self, context: TycheContext) -> float:
         return context.get_concept(self.symbol)
+    
+    # TODO account for modalities (i.e. for multiple instances of same concepts)
+    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+    #     var = self.symbol
+    #     expr = var if simplify else f"({var})"
+    #     return (expr, {var})
 
     def eval_reference(self, context: TycheContext) -> BakedSymbolReference[float]:
         """ Evaluates to a mutable reference to the value of this concept. """
@@ -1138,6 +1182,11 @@ class Constant(Atom):
 
     def direct_eval(self, context: TycheContext) -> float:
         return self.probability
+    
+    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+        value = str(self.probability)
+        expr = value if simplify else f"({value})"
+        return (expr, {})
 
 
 ALWAYS: Final[Constant] = Constant("\u22A4", 1)
@@ -1164,6 +1213,16 @@ class FreeVariable(Atom):
 
     def direct_eval(self, context: TycheContext) -> float:
         raise TycheLanguageException(f"Instances of {type(self).__name__} cannot be evaluated")
+    
+    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+        var = self.symbol
+
+        # remove leading underscore
+        if var[0] == "_":
+            var = var[1:]
+
+        expr = var if simplify else f"({var})"
+        return (expr, {var})
 
 
 class Role:
@@ -1374,6 +1433,47 @@ class Conditional(ADLNode):
         if_yes = context.eval(self.if_yes)
         if_no = context.eval(self.if_no)
         return cond * if_yes + (1 - cond) * if_no
+    
+    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+        # simplify special cases
+
+        condition_expr, condition_vars = self.condition.as_equation_expression(simplify = simplify)
+        if simplify and self.is_known_noop():
+            return (condition_expr, condition_vars)
+
+        if simplify and self.is_known_complement():
+            A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
+            expr = f"1 - {A_str}"
+            return (expr, condition_vars)
+        
+        if_yes_expr, if_yes_vars = self.if_yes.as_equation_expression(simplify = simplify)
+        if simplify and self.is_known_conjunction():
+            A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
+            B_str = f"({if_yes_expr})" if not isinstance(self.if_yes, Atom) else if_yes_expr
+
+            expr = f"{A_str} * {B_str}"
+            vars = set.union(condition_vars, if_yes_vars)
+            return (expr, vars)
+        
+        if_no_expr, if_no_vars = self.if_no.as_equation_expression(simplify = simplify)
+        if simplify and self.is_known_disjunction():
+            A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
+            B_str = f"({if_no_expr})" if not isinstance(self.if_no, Atom) else if_no_expr
+
+            expr = f"{A_str} + {B_str} - {A_str} * {B_str}"
+            vars = set.union(condition_vars, if_no_vars)
+            return (expr, vars)
+        
+        # standard case
+
+        condition_str = f"({condition_expr})" if simplify and not isinstance(self.condition, Atom) else condition_expr
+        if_yes_str = f"({if_yes_expr})" if simplify and not isinstance(self.if_yes, Atom) else if_yes_expr
+        if_no_str = f"({if_no_expr})" if simplify and not isinstance(self.if_no, Atom) else if_no_expr
+
+        expr = f"{condition_str} * {if_yes_str} + (1 - {condition_str}) * {if_no_str}"
+        vars = set.union(condition_vars, if_yes_vars, if_no_vars)
+
+        return (expr, vars)
 
     def normal_form(self):
         """
@@ -1453,6 +1553,10 @@ class Given(ADLNode):
 
     def direct_eval(self, context: TycheContext):
         raise IndexError("The Given operator must be evaluated specially by the context")
+
+    # ? TODO 
+    # def as_equation_expression(self) -> EquationExpression:
+    #     raise TycheLanguageException("not yet implemented")
 
     def normal_form(self):
         raise TycheLanguageException("not yet implemented")
@@ -1545,6 +1649,10 @@ class Expectation(ADLNode):
         """
         role_value = context.eval_role(self.role)
         return role_value.calculate_expectation(self.eval_node, self.given_node)
+    
+    def as_equation_expression(self) -> EquationExpression:
+        # TODO
+        raise TycheLanguageException("not yet implemented")
 
 
 class Exists(ADLNode):
@@ -1580,6 +1688,10 @@ class Exists(ADLNode):
         """
         role_value = context.eval_role(self.role)
         return role_value.calculate_exists()
+    
+    def as_equation_expression(self) -> EquationExpression:
+        # TODO
+        raise TycheLanguageException("not yet implemented")
 
 
 class LeastFixedPoint(ADLNode):
@@ -1634,6 +1746,10 @@ class LeastFixedPoint(ADLNode):
         """
         Complex one, needs iteration or equation solving.
         """
+        raise TycheLanguageException("not yet implemented")
+    
+    def as_equation_expression(self) -> EquationExpression:
+        # TODO
         raise TycheLanguageException("not yet implemented")
 
     def normal_form(self):
