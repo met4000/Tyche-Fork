@@ -7,7 +7,7 @@ sentences. This module also contains many learning strategies that may
 be used to update your belief models based upon ADL observations.
 """
 from math import isnan
-from typing import Dict, List, Set, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Dict, List, Set, Tuple, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 
@@ -18,6 +18,7 @@ from tyche.language import CompatibleWithRule, ExclusiveRoleDist, Rule, RuleValu
 from tyche.probability import uncertain_bayes_rule
 from tyche.references import SymbolReference, FieldSymbolReference, GuardedSymbolReference, FunctionSymbolReference, \
     BakedSymbolReference
+from tyche.solvers import TycheEquationSolver
 
 
 TycheConceptValue = TypeVar("TycheConceptValue", float, int, bool)
@@ -662,6 +663,8 @@ class Individual(TycheContext):
     concept_learning_strats: dict[str, ConceptLearningStrategy]
     role_learning_strats: dict[str, RoleLearningStrategy]
 
+    solver: TycheEquationSolver | None = None
+
     def __init__(self, name: Optional[str] = None):
         super().__init__()
         self.name = name
@@ -740,16 +743,16 @@ class Individual(TycheContext):
         value = TycheRuleDecorator.get(obj_type).get(obj_type, symbol)
         return obj_type.coerce_rule_value(value)
     
-    @staticmethod
-    def get_satisfiability_equations(obj_type: type['Individual'], *, simplify: bool = False) -> List[str]:
+    @classmethod
+    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False) -> Tuple[List[str], List[str]]:
         """
         TODO documentation
         """
         eqs = []
         vars: Set[str] = set()
 
-        for rule_symbol in Individual.get_rule_names(obj_type):
-            rule = Individual.get_class_rule(obj_type, rule_symbol)
+        for rule_symbol in cls.get_rule_names(obj_type):
+            rule = cls.get_class_rule(obj_type, rule_symbol)
             rule_eq, rule_vars = rule.as_equation(simplify = simplify)
             eqs.append(rule_eq)
             vars.update(rule_vars)
@@ -759,7 +762,26 @@ class Individual(TycheContext):
             var_str = var if simplify else f"({var})"
             var_eqs.append(f"0 <= {var_str} <= 1")
         
-        return [*eqs, *var_eqs]
+        return ([*eqs, *var_eqs], vars)
+    
+    @classmethod
+    def set_solver(cls, solver: TycheEquationSolver):
+        cls.solver = solver
+        return solver # pass solver through
+
+    @classmethod
+    def get_solver(cls) -> TycheEquationSolver:
+        if cls.solver is None:
+            raise TycheIndividualsException(
+                f"Error in {cls.__name__}: No equation solver has been set"
+            )
+        return cls.solver
+    
+    @classmethod
+    def are_rules_satisfiable(cls, obj_type: type['Individual']) -> bool:
+        exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
+        solver_out = cls.get_solver().are_exprs_satisfiable(exprs, vars)
+        return solver_out
 
     @staticmethod
     def describe(obj_type: Type['Individual']) -> str:
