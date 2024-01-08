@@ -751,8 +751,8 @@ class NoLikelierThan(RuleValue):
             free_variable = FreeVariable()
         self.free_variable = free_variable
 
-        self.raw_LHS = LHS
-        lhs_with_free_var = LHS & free_variable
+        self.raw_LHS = ADLNode.cast(LHS)
+        lhs_with_free_var = self.raw_LHS & free_variable
         super().__init__(lhs_with_free_var, RHS, epsilon, "\u227C") # ≼
 
     def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
