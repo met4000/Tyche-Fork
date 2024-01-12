@@ -42,6 +42,17 @@ class TestIndividual(Individual):
         dist.add(self.sub1, self.sub1Ratio)
         dist.add(self.sub2, 1 - self.sub1Ratio)
         return dist
+    
+class TestBadValueIndividual(Individual):
+    nan_concept: TycheConceptField
+    pos_inf_concept: TycheConceptField
+    neg_inf_concept: TycheConceptField
+
+    def __init__(self):
+        super().__init__('bad_value_test_individual')
+        self.nan_concept = float('nan')
+        self.pos_inf_concept = float('inf')
+        self.neg_inf_concept = float('-inf')
 
 
 class TestIndividuals(unittest.TestCase):
@@ -288,3 +299,21 @@ class TestIndividuals(unittest.TestCase):
             0.1 * (0.5 * 0.5) + 0.9 * (0.2 * 1),
             individual.eval(Expectation("sub", y & z))
         )
+    
+    def test_bad_concepts(self):
+        individual = TestBadValueIndividual()
+
+        nan_concept_error_type = TycheIndividualsException
+        nan_concept_error_regex = "Concept values must not be nan"
+        with self.assertRaisesRegex(nan_concept_error_type, nan_concept_error_regex):
+            self.assertNotIsInstance(individual.eval(Concept("nan_concept")), float)
+
+        pos_inf_concept_error_type = TycheIndividualsException
+        pos_inf_concept_error_regex = "Concept values must be <= to 1"
+        with self.assertRaisesRegex(pos_inf_concept_error_type, pos_inf_concept_error_regex):
+            self.assertNotIsInstance(individual.eval(Concept("pos_inf_concept")), float)
+
+        neg_inf_concept_error_type = TycheIndividualsException
+        neg_inf_concept_error_regex = "Concept values must be >= to 0"
+        with self.assertRaisesRegex(neg_inf_concept_error_type, neg_inf_concept_error_regex):
+            self.assertNotIsInstance(individual.eval(Concept("neg_inf_concept")), float)

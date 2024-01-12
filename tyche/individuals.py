@@ -813,11 +813,15 @@ class Individual(TycheContext):
         and raises errors if this is not possible.
         """
         if np.isscalar(value):
-            if value < 0:
+            if np.isnan(value):
+                raise TycheIndividualsException(
+                    f"Error in {cls.__name__}: Concept values must not be nan (got {value})"
+                )
+            if value < 0: # also handles -inf
                 raise TycheIndividualsException(
                     f"Error in {cls.__name__}: Concept values must be >= to 0, not {value}"
                 )
-            if value > 1:
+            if value > 1: # also handles inf
                 raise TycheIndividualsException(
                     f"Error in {cls.__name__}: Concept values must be <= to 1, not {value}"
                 )
