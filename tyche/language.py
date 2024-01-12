@@ -963,6 +963,10 @@ class ADLNode:
         If simplify is True, brackets will be omitted and expressions simplified
         where likely safe (identical behaviour not guaranteed). # ! todo verify, if possible.
         If False, then the returned value should contain brackets wrapping the expression.
+
+        When implementing:
+        * simplify = True => the caller is responsible for wrapping with brackets when necessary
+        * simplify = False => the callee is responsible for wrapping with brackets
         """
         raise NotImplementedError("as_equation is unimplemented for " + type(self).__name__)
 
@@ -1471,9 +1475,10 @@ class Conditional(ADLNode):
         if_no_str = f"({if_no_expr})" if simplify and not isinstance(self.if_no, Atom) else if_no_expr
 
         expr = f"{condition_str} * {if_yes_str} + (1 - {condition_str}) * {if_no_str}"
+        expr_str = f"({expr})" if not simplify else expr
         vars = set.union(condition_vars, if_yes_vars, if_no_vars)
 
-        return (expr, vars)
+        return (expr_str, vars)
 
     def normal_form(self):
         """
