@@ -46,7 +46,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
     def __init__(self, *,
                  session: Optional[WolframLanguageSession] = None,
                  kernel_location: Optional[str] = None,
-                 connection_timeout_s: Optional[float] = 5.0,
+                 connection_timeout_s: Optional[float] = None,
                  evaluation_timeout_s: Optional[float] = None,
                  kernel_loglevel: int = logging.NOTSET,
     ) -> None:
