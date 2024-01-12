@@ -6,10 +6,13 @@ can be used as contexts to evaluate aleatoric description logic (ADL)
 sentences. This module also contains many learning strategies that may
 be used to update your belief models based upon ADL observations.
 """
+from concurrent.futures import Future
 from math import isnan
+from numbers import Number
 from typing import Dict, List, Set, Tuple, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
+from sympy import Expr as SympyExpr
 
 from tyche.language import CompatibleWithRule, ExclusiveRoleDist, Rule, RuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
@@ -794,9 +797,27 @@ class Individual(TycheContext):
         return cls.solver
     
     @classmethod
+    def are_rules_satisfiable_future(cls, obj_type: type['Individual']) -> Future[bool]:
+        exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
+        solver_future = cls.get_solver().are_exprs_satisfiable_future(exprs, vars)
+        return solver_future
+    
+    @classmethod
     def are_rules_satisfiable(cls, obj_type: type['Individual']) -> bool:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_out = cls.get_solver().are_exprs_satisfiable(exprs, vars)
+        return solver_out
+    
+    @classmethod
+    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[Dict[str, SympyExpr] | None]:
+        exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
+        solver_future = cls.get_solver().example_exprs_solution_future(exprs, vars)
+        return solver_future
+    
+    @classmethod
+    def get_consistent_example(cls, obj_type: type['Individual']) -> Dict[str, SympyExpr] | None:
+        exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
+        solver_out = cls.get_solver().example_exprs_solution(exprs, vars)
         return solver_out
 
     @staticmethod
