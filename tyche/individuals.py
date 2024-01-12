@@ -644,6 +644,22 @@ class StatisticalRoleLearningStrategy(RoleLearningStrategy):
                f"(initial_value_weight={self.initial_value_weight:.3f}, decay_rate={self.decay_rate:.3f})"
 
 
+class WrappedIndividualSolver:
+    """
+    Internal class that wraps an individual and a solver, allowing
+    `with Individual.set_solver(...):` to remove the solver from the individual upon exit.
+    """
+    def __init__(self, cls: type['Individual']) -> None:
+        self.cls = cls
+    
+    def __enter__(self) -> TycheEquationSolver:
+        return self.cls.solver.__enter__()
+    
+    def __exit__(self, type, value, traceback):
+        solver = self.cls.solver
+        self.cls.solver = None
+        return solver.__exit__(type, value, traceback)
+
 class Individual(TycheContext):
     """
     A helper class for representing individual entities in an aleatoric knowledge base.
@@ -765,9 +781,9 @@ class Individual(TycheContext):
         return ([*eqs, *var_eqs], vars)
     
     @classmethod
-    def set_solver(cls, solver: TycheEquationSolver):
+    def set_solver(cls, solver: TycheEquationSolver) -> WrappedIndividualSolver:
         cls.solver = solver
-        return solver # pass solver through
+        return WrappedIndividualSolver(cls)
 
     @classmethod
     def get_solver(cls) -> TycheEquationSolver:

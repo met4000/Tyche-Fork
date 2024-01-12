@@ -63,8 +63,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
         return self
 
     def __exit__(self, type, value, traceback):
-        self.session.__exit__(type, value, traceback)
-        pass
+        return self.session.__exit__(type, value, traceback)
 
     def set_mathematica_settings(self, *,
                                  kernel_location: Optional[str] = None,
