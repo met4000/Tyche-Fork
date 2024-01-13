@@ -100,6 +100,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
                  connection_timeout_s: Optional[float] = None,
                  evaluation_timeout_s: Optional[float] = None,
                  kernel_loglevel: int = logging.NOTSET,
+                 logging_disable_warnings: bool = False
     ) -> None:
         super().__init__()
 
@@ -108,6 +109,9 @@ class TycheMathematicaSolver(TycheEquationSolver):
         self.connection_timeout_s = connection_timeout_s
         self.evaluation_timeout_s = evaluation_timeout_s
         self.kernel_loglevel = kernel_loglevel
+
+        if logging_disable_warnings:
+            logging.disable(logging.WARNING)
     
     def __enter__(self):
         self.restart_mathematica_session()
