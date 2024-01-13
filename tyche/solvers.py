@@ -46,8 +46,8 @@ class TycheEquationSolver:
         future: Future[bool] = Future()
         def fn(finished_future: Future[Tuple[bool | None, Any]]):
             solution_out = finished_future.result()
-            solution_exists = solution_out is not None
-            future.set_result(True if solution_exists else None)
+            solution_satisfiable = solution_out[0]
+            future.set_result(solution_satisfiable)
         
         solution_future.add_done_callback(fn)
         return future
