@@ -767,7 +767,7 @@ class Individual(TycheContext):
         """
         TODO documentation
         """
-        eqs = []
+        eqs: List[str] = []
         vars: Set[str] = set()
 
         for rule_symbol in cls.get_rule_names(obj_type):

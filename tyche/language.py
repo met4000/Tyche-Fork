@@ -958,7 +958,7 @@ class ADLNode:
     def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
         """
         TODO documentation
-        Returns a string representing the equation.
+        Returns a string representing the equation. Assumes acyclic.
 
         If simplify is True, brackets will be omitted and expressions simplified
         where likely safe (identical behaviour not guaranteed). # ! todo verify, if possible.
@@ -1201,13 +1201,14 @@ NEVER: Final[Constant] = Constant("\u22A5", 0)
 # * the top level of a rule, and the rule should have custom evaluation to avoid trying
 # * to eval the free variable
 class FreeVariable(Atom):
-    global_variable_count = 0
-
     """
     TODO description
     Used by rules to represent `a <= b` as `a * _free_var = b` (i.e. as an equality).
     Cannot (and should not) be evaluated.
     """
+    
+    global_variable_count = 0
+
     def __init__(self, symbol: Optional[str] = None) -> None:
         if symbol is None:
             symbol = str(FreeVariable.global_variable_count)

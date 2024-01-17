@@ -10,6 +10,9 @@ from wolframclient.language import wlexpr, WLInputExpression
 from wolframclient.language.expression import WLSymbol
 
 
+ResultType = TypeVar('ResultType')
+OutputType = TypeVar('OutputType')
+
 class TycheSolversException(Exception):
     """
     An exception type that is thrown when errors occur in
@@ -153,9 +156,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
             self.restart_mathematica_session()
         return self.session
     
-    T = TypeVar('T')
-    U = TypeVar('U')
-    def exec_mathematica_query(self, solver_in: WLInputExpression, result_type: type[T], *, result_transformer: Callable[[T], U] = lambda v: v) -> Future[U]:
+    def exec_mathematica_query(self, solver_in: WLInputExpression, result_type: type[ResultType], *, result_transformer: Callable[[ResultType], OutputType] = lambda v: v) -> Future[OutputType]:
         solver_future = self.get_mathematica_session().evaluate_wrap_future(solver_in, timeout=self.evaluation_timeout_s)
 
         future: Future[bool] = Future()
