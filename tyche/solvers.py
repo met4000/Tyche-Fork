@@ -1,3 +1,7 @@
+"""
+This module provides solvers that are required
+by individuals for certain calculations (e.g. satisfiability).
+"""
 from __future__ import annotations
 from concurrent.futures import Future
 import logging

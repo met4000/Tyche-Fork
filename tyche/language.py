@@ -3,8 +3,9 @@ This module contains the classes for representing aleatoric description
 logic (ADL) sentences, and the maths for their evaluation.
 """
 from __future__ import annotations
+from dataclasses import dataclass
 from math import isnan
-from typing import Final, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
+from typing import Final, List, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
 
 import numpy as np
 
@@ -674,14 +675,44 @@ def _format_dict(
     return f"{prefix}{join_by.join(key_values)}{suffix}"
 
 
-# ! using a string to represent the polynomial, for now
-EquationExpression = Tuple[str, Set[str]]
-Equation = Tuple[str, Set[str]]
+@dataclass(frozen=True)
+class SimpleRuleValue:
+    """
+    TODO description
+
+    Represents a simple (not nested) rule.
+    
+    `expression` may be assumed to be simple.
+    Does not perform checks when constructed.
+    """
+
+    variable: ADLVariable
+    expression: ADLNode
+
+@dataclass
+class Equations:
+    equations: List[str]
+    variables: List[str]
+
+def make_var_and_rule(expr: ADLNode, *, free_variable_index: int) -> Tuple[ADLVariable, Set[SimpleRuleValue], int]:
+    """
+    Makes an ADLVariable and a rule equating it to the given ADLNode.
+    If the expression is already a variable, instead passes it through.
+    """
+    if isinstance(expr, ADLVariable):
+        return expr, set(), free_variable_index
+    
+    var = FreeVariable(str(free_variable_index))
+    free_variable_index += 1
+    rule = SimpleRuleValue(var, expr)
+
+    return var, {rule}, free_variable_index
 
 class RuleValue:
     """
     TODO description
-    Base class for ADL T-Book rules, represented as an (in)equality between two ADLNodes.
+
+    Base class for ADL T-Book rules, represented as an equivalence in probability between two ADLNodes.
     """
 
     # 1e-12 was chosen as values are (inclusively) between 0 and 1, and 0.1 + 0.2 gives an error of about 4e-17
@@ -704,14 +735,18 @@ class RuleValue:
     def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
     
-    def as_equation(self, *, simplify: bool = False) -> Equation:
-        lhs_expr, lhs_vars = self.LHS.as_equation_expression(simplify = simplify)
-        rhs_expr, rhs_vars = self.RHS.as_equation_expression(simplify = simplify)
+    def as_simple_rules(self, *, free_variable_index: int) -> Tuple[Set[SimpleRuleValue], int]:
+        eq_var = FreeVariable(str(free_variable_index))
+        free_variable_index += 1
+        
+        lhs_expr, lhs_rules, free_variable_index = self.LHS.as_simple(free_variable_index=free_variable_index)
+        rhs_expr, rhs_rules, free_variable_index = self.RHS.as_simple(free_variable_index=free_variable_index)
 
-        eq = f"{lhs_expr} == {rhs_expr}"
-        vars = set.union(lhs_vars, rhs_vars)
+        lhs_rule = SimpleRuleValue(eq_var, lhs_expr)
+        rhs_rule = SimpleRuleValue(eq_var, rhs_expr)
 
-        return (eq, vars)
+        rules = set.union({lhs_rule, rhs_rule}, lhs_rules, rhs_rules)
+        return rules, free_variable_index
     
     def __str__(self) -> str:
         return self.to_str()
@@ -935,6 +970,12 @@ class ADLNode:
         return true if formulas are identical
         """
         raise NotImplementedError("__eq__ is unimplemented for " + type(self).__name__)
+    
+    def __hash__(self) -> int:
+        """
+        returns a hash of the object
+        """
+        raise NotImplementedError("__hash__ is unimplemented for " + type(self).__name__)
 
     def __lt__(self, other: 'ADLNode') -> bool:
         """
@@ -955,20 +996,17 @@ class ADLNode:
         """
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
     
-    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, Set[SimpleRuleValue], int]:
         """
         TODO documentation
-        Returns a string representing the equation. Assumes acyclic.
 
-        If simplify is True, brackets will be omitted and expressions simplified
-        where likely safe (identical behaviour not guaranteed). # ! todo verify, if possible.
-        If False, then the returned value should contain brackets wrapping the expression.
+        Converts the ADLNode into a set of simple (not nested) rules and
+        the corresponding simple expression for the node itself.
 
-        When implementing:
-        * simplify = True => the caller is responsible for wrapping with brackets when necessary
-        * simplify = False => the callee is responsible for wrapping with brackets
+        Requires an index to start numbering free variables from.
+        Also returns the next unused index.
         """
-        raise NotImplementedError("as_equation is unimplemented for " + type(self).__name__)
+        raise NotImplementedError("as_simple is unimplemented for " + type(self).__name__)
 
     def normal_form(self) -> 'ADLNode':
         """
@@ -1127,23 +1165,29 @@ class Atom(ADLNode):
 
     def __eq__(self, other) -> bool:
         return type(self) == type(other) and self.symbol == cast('Atom', other).symbol
+    
+    def __hash__(self) -> int:
+        return hash((self.symbol))
 
     def __lt__(self, other) -> bool:
         raise TycheLanguageException("not yet implemented")
     
-    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-        """
-        TODO deal with unsafe atom names (e.g. special chars)
-        """
-        var = self.symbol
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLVariable, Set[SimpleRuleValue], int]:
+        return self, set(), free_variable_index
+    
+    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+    #     """
+    #     TODO deal with unsafe atom names (e.g. special chars)
+    #     """
+    #     var = self.symbol
 
-        try:
-            Concept.check_symbol(var)
-        except ValueError:
-            raise TycheLanguageException(f"special character in variable names not yet supported (`name`: `{var}`)")
+    #     try:
+    #         Concept.check_symbol(var)
+    #     except ValueError:
+    #         raise TycheLanguageException(f"special character in variable names not yet supported (`name`: `{var}`)")
         
-        expr = var if simplify else f"({var})"
-        return (expr, {var})
+    #     expr = var if simplify else f"({var})"
+    #     return (expr, {var})
 
     def normal_form(self):
         return self
@@ -1187,10 +1231,16 @@ class Constant(Atom):
     def direct_eval(self, context: TycheContext) -> float:
         return self.probability
     
-    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-        value = str(self.probability)
-        expr = value if simplify else f"({value})"
-        return (expr, set())
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLVariable, Set[SimpleRuleValue], int]:
+        var = FreeVariable(str(free_variable_index))
+        free_variable_index += 1
+        rule = SimpleRuleValue(var, self)
+        return var, {rule}, free_variable_index
+
+    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+    #     value = str(self.probability)
+    #     expr = value if simplify else f"({value})"
+    #     return (expr, set())
 
 
 ALWAYS: Final[Constant] = Constant("\u22A4", 1)
@@ -1203,8 +1253,12 @@ NEVER: Final[Constant] = Constant("\u22A5", 0)
 class FreeVariable(Atom):
     """
     TODO description
-    Used by rules to represent `a <= b` as `a * _free_var = b` (i.e. as an equality).
+    Used by rules to represent `a <= b` as `a * _free_var = b` (i.e. as an equality),
+    and to create simple rules from nested rules.
     Cannot (and should not) be evaluated.
+
+    Currently not thread safe - could use some sort of uuid instead of a global
+    increment for variable identification.
     """
     
     global_variable_count = 0
@@ -1219,15 +1273,17 @@ class FreeVariable(Atom):
     def direct_eval(self, context: TycheContext) -> float:
         raise TycheLanguageException(f"Instances of {type(self).__name__} cannot be evaluated")
     
-    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-        var = self.symbol
+    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+    #     var = self.symbol
 
-        # remove leading underscore
-        if var[0] == "_":
-            var = var[1:]
+    #     # remove leading underscore
+    #     if var[0] == "_":
+    #         var = var[1:]
 
-        expr = var if simplify else f"({var})"
-        return (expr, {var})
+    #     expr = var if simplify else f"({var})"
+    #     return (expr, {var})
+
+ADLVariable = Concept | FreeVariable
 
 
 class Role:
@@ -1429,6 +1485,9 @@ class Conditional(ADLNode):
         return (self.condition == other.condition
                 and self.if_yes == other.if_yes
                 and self.if_no == other.if_no)
+    
+    def __hash__(self) -> int:
+        return hash((self.condition, self.if_yes, self.if_no))
 
     def __lt__(self, obj):
         raise TycheLanguageException("not yet implemented")
@@ -1439,47 +1498,60 @@ class Conditional(ADLNode):
         if_no = context.eval(self.if_no)
         return cond * if_yes + (1 - cond) * if_no
     
-    def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-        # simplify special cases
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, Set[SimpleRuleValue], int]:
+        condition_expr, condition_rules, free_variable_index = self.condition.as_simple(free_variable_index=free_variable_index)
+        if_yes_expr, if_yes_rules, free_variable_index = self.if_yes.as_simple(free_variable_index=free_variable_index)
+        if_no_expr, if_no_rules, free_variable_index = self.if_no.as_simple(free_variable_index=free_variable_index)
 
-        condition_expr, condition_vars = self.condition.as_equation_expression(simplify = simplify)
-        if simplify and self.is_known_noop():
-            return (condition_expr, condition_vars)
+        condition_var, condition_var_rule, free_variable_index = make_var_and_rule(condition_expr, free_variable_index=free_variable_index)
+        if_yes_var, if_yes_var_rule, free_variable_index = make_var_and_rule(if_yes_expr, free_variable_index=free_variable_index)
+        if_no_var, if_no_var_rule, free_variable_index = make_var_and_rule(if_no_expr, free_variable_index=free_variable_index)
 
-        if simplify and self.is_known_complement():
-            A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
-            expr = f"1 - {A_str}"
-            return (expr, condition_vars)
+        simple_expr = Conditional(condition_var, if_yes_var, if_no_var)
+        rules = set.union(condition_var_rule, if_yes_var_rule, if_no_var_rule, condition_rules, if_yes_rules, if_no_rules)
+        return simple_expr, rules, free_variable_index
+    
+    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
+    #     # simplify special cases
+
+    #     condition_expr, condition_vars = self.condition.as_equation_expression(simplify = simplify)
+    #     if simplify and self.is_known_noop():
+    #         return (condition_expr, condition_vars)
+
+    #     if simplify and self.is_known_complement():
+    #         A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
+    #         expr = f"1 - {A_str}"
+    #         return (expr, condition_vars)
         
-        if_yes_expr, if_yes_vars = self.if_yes.as_equation_expression(simplify = simplify)
-        if simplify and self.is_known_conjunction():
-            A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
-            B_str = f"({if_yes_expr})" if not isinstance(self.if_yes, Atom) else if_yes_expr
+    #     if_yes_expr, if_yes_vars = self.if_yes.as_equation_expression(simplify = simplify)
+    #     if simplify and self.is_known_conjunction():
+    #         A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
+    #         B_str = f"({if_yes_expr})" if not isinstance(self.if_yes, Atom) else if_yes_expr
 
-            expr = f"{A_str} * {B_str}"
-            vars = set.union(condition_vars, if_yes_vars)
-            return (expr, vars)
+    #         expr = f"{A_str} * {B_str}"
+    #         vars = set.union(condition_vars, if_yes_vars)
+    #         return (expr, vars)
         
-        if_no_expr, if_no_vars = self.if_no.as_equation_expression(simplify = simplify)
-        if simplify and self.is_known_disjunction():
-            A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
-            B_str = f"({if_no_expr})" if not isinstance(self.if_no, Atom) else if_no_expr
+    #     if_no_expr, if_no_vars = self.if_no.as_equation_expression(simplify = simplify)
+    #     if simplify and self.is_known_disjunction():
+    #         A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
+    #         B_str = f"({if_no_expr})" if not isinstance(self.if_no, Atom) else if_no_expr
 
-            expr = f"{A_str} + {B_str} - {A_str} * {B_str}"
-            vars = set.union(condition_vars, if_no_vars)
-            return (expr, vars)
+    #         expr = f"{A_str} + {B_str} - {A_str} * {B_str}"
+    #         vars = set.union(condition_vars, if_no_vars)
+    #         return (expr, vars)
         
-        # standard case
+    #     # standard case
 
-        condition_str = f"({condition_expr})" if simplify and not isinstance(self.condition, Atom) else condition_expr
-        if_yes_str = f"({if_yes_expr})" if simplify and not isinstance(self.if_yes, Atom) else if_yes_expr
-        if_no_str = f"({if_no_expr})" if simplify and not isinstance(self.if_no, Atom) else if_no_expr
+    #     condition_str = f"({condition_expr})" if simplify and not isinstance(self.condition, Atom) else condition_expr
+    #     if_yes_str = f"({if_yes_expr})" if simplify and not isinstance(self.if_yes, Atom) else if_yes_expr
+    #     if_no_str = f"({if_no_expr})" if simplify and not isinstance(self.if_no, Atom) else if_no_expr
 
-        expr = f"{condition_str} * {if_yes_str} + (1 - {condition_str}) * {if_no_str}"
-        expr_str = f"({expr})" if not simplify else expr
-        vars = set.union(condition_vars, if_yes_vars, if_no_vars)
+    #     expr = f"{condition_str} * {if_yes_str} + (1 - {condition_str}) * {if_no_str}"
+    #     expr_str = f"({expr})" if not simplify else expr
+    #     vars = set.union(condition_vars, if_yes_vars, if_no_vars)
 
-        return (expr_str, vars)
+    #     return (expr_str, vars)
 
     def normal_form(self):
         """
@@ -1553,6 +1625,9 @@ class Given(ADLNode):
 
         other: 'Given' = cast('Given', obj)
         return self.node == other.node and self.given == other.given
+    
+    def __hash__(self) -> int:
+        return hash((self.node, self.given))
 
     def __lt__(self, obj):
         raise TycheLanguageException("not yet implemented")
@@ -1620,6 +1695,9 @@ class Expectation(ADLNode):
 
         other: 'Expectation' = cast('Expectation', obj)
         return self.role == other.role and self.eval_node == other.eval_node and self.given_node == other.given_node
+    
+    def __hash__(self) -> int:
+        return hash((self.role, self.eval_node, self.given_node))
 
     @staticmethod
     def evaluate_role_under_role(outer_role: ExclusiveRoleDist, inner_role: Role) -> ExclusiveRoleDist:
@@ -1655,10 +1733,21 @@ class Expectation(ADLNode):
         """
         role_value = context.eval_role(self.role)
         return role_value.calculate_expectation(self.eval_node, self.given_node)
+
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, Set[SimpleRuleValue], int]:
+        eval_expr, eval_rules, free_variable_index = self.eval_node.as_simple(free_variable_index=free_variable_index)
+        given_expr, given_rules, free_variable_index = self.given_node.as_simple(free_variable_index=free_variable_index)
+
+        eval_var, eval_var_rule, free_variable_index = make_var_and_rule(eval_expr, free_variable_index=free_variable_index)
+        given_var, given_var_rule, free_variable_index = make_var_and_rule(given_expr, free_variable_index=free_variable_index)
+
+        simple_expr = Expectation(self.role, eval_var, given_var)
+        rules = set.union(eval_var_rule, given_var_rule, eval_rules, given_rules)
+        return simple_expr, rules, free_variable_index
     
-    def as_equation_expression(self) -> EquationExpression:
-        # TODO
-        raise TycheLanguageException("not yet implemented")
+    # def as_equation_expression(self) -> EquationExpression:
+    #     # TODO
+    #     raise TycheLanguageException("not yet implemented")
 
 
 class Exists(ADLNode):
@@ -1695,9 +1784,9 @@ class Exists(ADLNode):
         role_value = context.eval_role(self.role)
         return role_value.calculate_exists()
     
-    def as_equation_expression(self) -> EquationExpression:
-        # TODO
-        raise TycheLanguageException("not yet implemented")
+    # def as_equation_expression(self) -> EquationExpression:
+    #     # TODO
+    #     raise TycheLanguageException("not yet implemented")
 
 
 class LeastFixedPoint(ADLNode):
@@ -1754,9 +1843,9 @@ class LeastFixedPoint(ADLNode):
         """
         raise TycheLanguageException("not yet implemented")
     
-    def as_equation_expression(self) -> EquationExpression:
-        # TODO
-        raise TycheLanguageException("not yet implemented")
+    # def as_equation_expression(self) -> EquationExpression:
+    #     # TODO
+    #     raise TycheLanguageException("not yet implemented")
 
     def normal_form(self):
         """

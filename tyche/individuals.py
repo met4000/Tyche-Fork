@@ -8,13 +8,12 @@ be used to update your belief models based upon ADL observations.
 """
 from concurrent.futures import Future
 from math import isnan
-from numbers import Number
-from typing import Dict, List, Set, Tuple, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Dict, Set, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
 
-from tyche.language import CompatibleWithRule, ExclusiveRoleDist, Rule, RuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
+from tyche.language import CompatibleWithRule, Equations, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
     ReferenceBackedRole, RoleDist
 
@@ -763,25 +762,28 @@ class Individual(TycheContext):
         return obj_type.coerce_rule_value(value)
     
     @classmethod
-    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False) -> Tuple[List[str], List[str]]:
+    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False, free_variable_index: int = 0) -> Equations:
         """
         TODO documentation
+
+        Assumes acyclic.
         """
-        eqs: List[str] = []
-        vars: Set[str] = set()
+
+        # construct simple rules from rules
+
+        rules: Set[SimpleRuleValue] = set()
 
         for rule_symbol in cls.get_rule_names(obj_type):
             rule = cls.get_class_rule(obj_type, rule_symbol)
-            rule_eq, rule_vars = rule.as_equation(simplify = simplify)
-            eqs.append(rule_eq)
-            vars.update(rule_vars)
+            simple_rules, free_variable_index = rule.as_simple_rules(free_variable_index=free_variable_index)
+            rules.update(simple_rules)
+
+        # TODO construct tree
+        # ! assumes acyclic
         
-        var_eqs = []
-        for var in vars:
-            var_str = var if simplify else f"({var})"
-            var_eqs.append(f"0 <= {var_str} <= 1")
-        
-        return ([*eqs, *var_eqs], vars)
+        # TODO
+
+        return rules
     
     @classmethod
     def set_solver(cls, solver: TycheEquationSolver) -> WrappedIndividualSolver:
