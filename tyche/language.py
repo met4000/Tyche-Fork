@@ -736,16 +736,25 @@ class RuleValue:
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
     
     def as_simple_rules(self, *, free_variable_index: int) -> Tuple[Set[SimpleRuleValue], int]:
-        eq_var = FreeVariable(str(free_variable_index))
-        free_variable_index += 1
-        
         lhs_expr, lhs_rules, free_variable_index = self.LHS.as_simple(free_variable_index=free_variable_index)
         rhs_expr, rhs_rules, free_variable_index = self.RHS.as_simple(free_variable_index=free_variable_index)
 
-        lhs_rule = SimpleRuleValue(eq_var, lhs_expr)
-        rhs_rule = SimpleRuleValue(eq_var, rhs_expr)
+        rules = set.union(lhs_rules, rhs_rules)
 
-        rules = set.union({lhs_rule, rhs_rule}, lhs_rules, rhs_rules)
+        if isinstance(lhs_expr, ADLVariable):
+            rule = SimpleRuleValue(lhs_expr, rhs_expr)
+            rules.add(rule)
+        elif isinstance(rhs_expr, ADLVariable):
+            rule = SimpleRuleValue(rhs_expr, lhs_expr)
+            rules.add(rule)
+        else:
+            eq_var = FreeVariable(str(free_variable_index))
+            free_variable_index += 1
+            lhs_rule = SimpleRuleValue(eq_var, lhs_expr)
+            rhs_rule = SimpleRuleValue(eq_var, rhs_expr)
+            rules.add(lhs_rule)
+            rules.add(rhs_rule)
+        
         return rules, free_variable_index
     
     def __str__(self) -> str:
