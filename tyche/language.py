@@ -5,7 +5,7 @@ logic (ADL) sentences, and the maths for their evaluation.
 from __future__ import annotations
 from dataclasses import dataclass
 from math import isnan
-from typing import Final, List, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
+from typing import Final, FrozenSet, List, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
 
 import numpy as np
 
@@ -689,24 +689,32 @@ class SimpleRuleValue:
     variable: ADLVariable
     expression: ADLNode
 
+    def variable_equivalence_classes(self) -> FrozenSet[FrozenSet[ADLVariable]]:
+        normal_classes, modality_classes = self.expression.variable_equivalence_classes()
+        if len(normal_classes) > 0:
+            normal_classes = frozenset(normal_class.union({self.variable}) for normal_class in normal_classes)
+        else:
+            normal_classes = frozenset([frozenset([self.variable])])
+        return normal_classes.union(modality_classes)
+
 @dataclass
 class Equations:
     equations: List[str]
     variables: List[str]
 
-def make_var_and_rule(expr: ADLNode, *, free_variable_index: int) -> Tuple[ADLVariable, Set[SimpleRuleValue], int]:
+def make_var_and_rule(expr: ADLNode, *, free_variable_index: int) -> Tuple[ADLVariable, FrozenSet[SimpleRuleValue], int]:
     """
     Makes an ADLVariable and a rule equating it to the given ADLNode.
     If the expression is already a variable, instead passes it through.
     """
     if isinstance(expr, ADLVariable):
-        return expr, set(), free_variable_index
+        return expr, frozenset(), free_variable_index
     
     var = FreeVariable(str(free_variable_index))
     free_variable_index += 1
     rule = SimpleRuleValue(var, expr)
 
-    return var, {rule}, free_variable_index
+    return var, frozenset([rule]), free_variable_index
 
 class RuleValue:
     """
@@ -735,11 +743,11 @@ class RuleValue:
     def direct_eval(self, context: TycheContext, *, epsilon: Optional[float] = None) -> bool:
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
     
-    def as_simple_rules(self, *, free_variable_index: int) -> Tuple[Set[SimpleRuleValue], int]:
+    def as_simple_rules(self, *, free_variable_index: int) -> Tuple[FrozenSet[SimpleRuleValue], int]:
         lhs_expr, lhs_rules, free_variable_index = self.LHS.as_simple(free_variable_index=free_variable_index)
         rhs_expr, rhs_rules, free_variable_index = self.RHS.as_simple(free_variable_index=free_variable_index)
 
-        rules = set.union(lhs_rules, rhs_rules)
+        rules = set().union(lhs_rules, rhs_rules)
 
         if isinstance(lhs_expr, ADLVariable):
             rule = SimpleRuleValue(lhs_expr, rhs_expr)
@@ -755,7 +763,7 @@ class RuleValue:
             rules.add(lhs_rule)
             rules.add(rhs_rule)
         
-        return rules, free_variable_index
+        return frozenset(rules), free_variable_index
     
     def __str__(self) -> str:
         return self.to_str()
@@ -1005,7 +1013,7 @@ class ADLNode:
         """
         raise NotImplementedError("direct_eval is unimplemented for " + type(self).__name__)
     
-    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, Set[SimpleRuleValue], int]:
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, FrozenSet[SimpleRuleValue], int]:
         """
         TODO documentation
 
@@ -1016,6 +1024,25 @@ class ADLNode:
         Also returns the next unused index.
         """
         raise NotImplementedError("as_simple is unimplemented for " + type(self).__name__)
+    
+    def variable_equivalence_classes(self) -> Tuple[FrozenSet[FrozenSet[ADLVariable]], FrozenSet[FrozenSet[ADLVariable]]]:
+        """
+        TODO documentation
+        
+        Assumes the ADLNode is simple (not nested).
+        Returns the equivalence classes of variables in the node.
+        I.e. related variables, not counting modalities.
+        This is usually 1 class, including every variable in the node.
+
+        The first set of classes are considered to include the variable in an assignment.
+        i.e. with C ≈ D, D should return ({D}, {}), and C ≈ D ? E : F, the conditional should return ({D, E, F}, {}).
+        Those refer respectively to equivalence classes of {C, D}, and {C, D, E, F}.
+
+        The second set of classes are considered to not include the variable in the assignment.
+        i.e. with C ≈ [D](E | F), the expectation should return ({}, {E, F}).
+        That refers to the equivalence classes {C} and {E, F}.
+        """
+        raise NotImplementedError("variable_equivalence_classes is unimplemented for " + type(self).__name__)
 
     def normal_form(self) -> 'ADLNode':
         """
@@ -1181,8 +1208,11 @@ class Atom(ADLNode):
     def __lt__(self, other) -> bool:
         raise TycheLanguageException("not yet implemented")
     
-    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLVariable, Set[SimpleRuleValue], int]:
-        return self, set(), free_variable_index
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLVariable, FrozenSet[SimpleRuleValue], int]:
+        return self, frozenset(), free_variable_index
+    
+    def variable_equivalence_classes(self) -> Tuple[FrozenSet[FrozenSet[ADLVariable]], FrozenSet[FrozenSet[ADLVariable]]]:
+        return frozenset([frozenset([self])]), frozenset()
     
     # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
     #     """
@@ -1240,11 +1270,14 @@ class Constant(Atom):
     def direct_eval(self, context: TycheContext) -> float:
         return self.probability
     
-    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLVariable, Set[SimpleRuleValue], int]:
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLVariable, FrozenSet[SimpleRuleValue], int]:
         var = FreeVariable(str(free_variable_index))
         free_variable_index += 1
         rule = SimpleRuleValue(var, self)
-        return var, {rule}, free_variable_index
+        return var, frozenset([rule]), free_variable_index
+    
+    def variable_equivalence_classes(self) -> Tuple[FrozenSet[FrozenSet[ADLVariable]], FrozenSet[FrozenSet[ADLVariable]]]:
+        return frozenset(), frozenset()
 
     # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
     #     value = str(self.probability)
@@ -1322,6 +1355,9 @@ class Role:
 
     def __eq__(self, other) -> bool:
         return type(self) == type(other) and self.symbol == cast('Role', other).symbol
+    
+    def __hash__(self) -> int:
+        return hash((self.symbol))
 
     def direct_eval(self, context: TycheContext) -> RoleDist:
         return context.get_role(self.symbol)
@@ -1507,7 +1543,7 @@ class Conditional(ADLNode):
         if_no = context.eval(self.if_no)
         return cond * if_yes + (1 - cond) * if_no
     
-    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, Set[SimpleRuleValue], int]:
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, FrozenSet[SimpleRuleValue], int]:
         condition_expr, condition_rules, free_variable_index = self.condition.as_simple(free_variable_index=free_variable_index)
         if_yes_expr, if_yes_rules, free_variable_index = self.if_yes.as_simple(free_variable_index=free_variable_index)
         if_no_expr, if_no_rules, free_variable_index = self.if_no.as_simple(free_variable_index=free_variable_index)
@@ -1517,8 +1553,11 @@ class Conditional(ADLNode):
         if_no_var, if_no_var_rule, free_variable_index = make_var_and_rule(if_no_expr, free_variable_index=free_variable_index)
 
         simple_expr = Conditional(condition_var, if_yes_var, if_no_var)
-        rules = set.union(condition_var_rule, if_yes_var_rule, if_no_var_rule, condition_rules, if_yes_rules, if_no_rules)
+        rules = frozenset.union(condition_var_rule, if_yes_var_rule, if_no_var_rule, condition_rules, if_yes_rules, if_no_rules)
         return simple_expr, rules, free_variable_index
+    
+    def variable_equivalence_classes(self) -> Tuple[FrozenSet[FrozenSet[ADLVariable]], FrozenSet[FrozenSet[ADLVariable]]]:
+        return frozenset([frozenset([self.condition, self.if_yes, self.if_no])]), frozenset()
     
     # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
     #     # simplify special cases
@@ -1743,7 +1782,7 @@ class Expectation(ADLNode):
         role_value = context.eval_role(self.role)
         return role_value.calculate_expectation(self.eval_node, self.given_node)
 
-    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, Set[SimpleRuleValue], int]:
+    def as_simple(self, *, free_variable_index: int) -> Tuple[ADLNode, FrozenSet[SimpleRuleValue], int]:
         eval_expr, eval_rules, free_variable_index = self.eval_node.as_simple(free_variable_index=free_variable_index)
         given_expr, given_rules, free_variable_index = self.given_node.as_simple(free_variable_index=free_variable_index)
 
@@ -1751,8 +1790,11 @@ class Expectation(ADLNode):
         given_var, given_var_rule, free_variable_index = make_var_and_rule(given_expr, free_variable_index=free_variable_index)
 
         simple_expr = Expectation(self.role, eval_var, given_var)
-        rules = set.union(eval_var_rule, given_var_rule, eval_rules, given_rules)
+        rules = frozenset.union(eval_var_rule, given_var_rule, eval_rules, given_rules)
         return simple_expr, rules, free_variable_index
+    
+    def variable_equivalence_classes(self) -> Tuple[FrozenSet[FrozenSet[ADLVariable]], FrozenSet[FrozenSet[ADLVariable]]]:
+        return frozenset(), frozenset([frozenset([self.eval_node, self.given_node])])
     
     # def as_equation_expression(self) -> EquationExpression:
     #     # TODO

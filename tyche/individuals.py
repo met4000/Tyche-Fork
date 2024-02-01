@@ -8,12 +8,12 @@ be used to update your belief models based upon ADL observations.
 """
 from concurrent.futures import Future
 from math import isnan
-from typing import Dict, Set, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Dict, FrozenSet, List, Set, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
 
-from tyche.language import CompatibleWithRule, Equations, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
+from tyche.language import ADLVariable, CompatibleWithRule, Equations, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
     ReferenceBackedRole, RoleDist
 
@@ -780,6 +780,26 @@ class Individual(TycheContext):
 
         # TODO construct tree
         # ! assumes acyclic
+            
+        equivalence_classes: Set[FrozenSet[ADLVariable]] = set()
+
+        for rule in rules:
+            rule_eq_classes = rule.variable_equivalence_classes()
+            for eq_class in rule_eq_classes:
+                # find all equivalence classes that overlap with
+                # this one, and combine them
+
+                matches: Set[FrozenSet[ADLVariable]] = set()
+                for existing_eq_class in equivalence_classes:
+                    for var in eq_class:
+                        if var in existing_eq_class:
+                            # => intersection is non-empty
+                            matches.add(existing_eq_class)
+                            break
+                equivalence_classes.difference_update(matches)
+
+                combined_eq_class = frozenset.union(*matches, eq_class)
+                equivalence_classes.add(combined_eq_class)
         
         # TODO
 
