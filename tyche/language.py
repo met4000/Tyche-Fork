@@ -5,7 +5,7 @@ logic (ADL) sentences, and the maths for their evaluation.
 from __future__ import annotations
 from dataclasses import dataclass
 from math import isnan
-from typing import Final, FrozenSet, List, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
+from typing import Dict, Final, FrozenSet, List, Set, cast, Optional, Union, Tuple, NewType, TypeVar, Iterable, Callable
 
 import numpy as np
 
@@ -686,8 +686,8 @@ class SimpleRuleValue:
     Does not perform checks when constructed.
     """
 
-    variable: ADLVariable
-    expression: ADLNode
+    variable: Final[ADLVariable]
+    expression: Final[ADLNode]
 
     def variable_equivalence_classes(self) -> FrozenSet[FrozenSet[ADLVariable]]:
         normal_classes, modality_classes = self.expression.variable_equivalence_classes()
@@ -696,6 +696,20 @@ class SimpleRuleValue:
         else:
             normal_classes = frozenset([frozenset([self.variable])])
         return normal_classes.union(modality_classes)
+    
+    def equivalence_class_tree_edges(self, var_map: Dict[ADLVariable, int]) -> Dict[int, Dict[int, Set[Role]]]:
+        lhs_class = var_map[self.variable]
+
+        edges: Dict[int, Dict[int, Role]] = {lhs_class: {}}
+        role_vars = self.expression.modality_variables()
+        for role, vars in role_vars.items():
+            for var in vars: # not optimal - could be redundant
+                var_class = var_map[var]
+                if var_class not in edges[lhs_class]:
+                    edges[lhs_class][var_class] = set()
+                edges[lhs_class][var_class].add(role)
+        
+        return edges
 
 @dataclass
 class Equations:
@@ -1036,13 +1050,25 @@ class ADLNode:
 
         The first set of classes are considered to include the variable in an assignment.
         i.e. with C ≈ D, D should return ({D}, {}), and C ≈ D ? E : F, the conditional should return ({D, E, F}, {}).
-        Those refer respectively to equivalence classes of {C, D}, and {C, D, E, F}.
+        Those refer respectively to equivalence classes {{C, D}}, and {{C, D, E, F}}.
 
         The second set of classes are considered to not include the variable in the assignment.
         i.e. with C ≈ [D](E | F), the expectation should return ({}, {E, F}).
-        That refers to the equivalence classes {C} and {E, F}.
+        That refers to the equivalence classes {{C}, {E, F}}.
         """
         raise NotImplementedError("variable_equivalence_classes is unimplemented for " + type(self).__name__)
+    
+    def modality_variables(self) -> Dict[Role, FrozenSet[ADLVariable]]:
+        """
+        Assumes the ADLNode is simple (not nested).
+        Returns a map from all roles in the expression, to the variables
+        in the expression within the scope of the role.
+
+        Note: The satisfiability algorithm that uses this method could be
+        optimised by only returning one variable from each equivalence class,
+        rather than all variables.
+        """
+        return {}
 
     def normal_form(self) -> 'ADLNode':
         """
@@ -1795,6 +1821,9 @@ class Expectation(ADLNode):
     
     def variable_equivalence_classes(self) -> Tuple[FrozenSet[FrozenSet[ADLVariable]], FrozenSet[FrozenSet[ADLVariable]]]:
         return frozenset(), frozenset([frozenset([self.eval_node, self.given_node])])
+    
+    def modality_variables(self) -> Dict[Role, FrozenSet[ADLVariable]]:
+        return {self.role: frozenset([self.eval_node, self.given_node])}
     
     # def as_equation_expression(self) -> EquationExpression:
     #     # TODO

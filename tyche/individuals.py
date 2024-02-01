@@ -766,7 +766,7 @@ class Individual(TycheContext):
         """
         TODO documentation
 
-        Assumes acyclic.
+        ! Assumes acyclic.
         """
 
         # construct simple rules from rules
@@ -778,7 +778,7 @@ class Individual(TycheContext):
             simple_rules, free_variable_index = rule.as_simple_rules(free_variable_index=free_variable_index)
             rules.update(simple_rules)
 
-        # TODO construct tree
+        # construct modality tree on the equivalence classes
         # ! assumes acyclic
             
         equivalence_classes: Set[FrozenSet[ADLVariable]] = set()
@@ -800,6 +800,23 @@ class Individual(TycheContext):
 
                 combined_eq_class = frozenset.union(*matches, eq_class)
                 equivalence_classes.add(combined_eq_class)
+
+        tree_nodes = [*equivalence_classes]
+
+        variable_equivalence_class_map: Dict[ADLVariable, int] = {}
+        for i in range(len(tree_nodes)):
+            eq_class = tree_nodes[i]
+            for var in eq_class:
+                variable_equivalence_class_map[var] = i
+        
+        tree_adj_arrs: Dict[int, Dict[int, Set[Role]]] = {i: {} for i in range(len(tree_nodes))}
+        for rule in rules:
+            edges = rule.equivalence_class_tree_edges(variable_equivalence_class_map)
+            for src, dst_dict in edges.items():
+                for dst, roles in dst_dict.items():
+                    if dst not in tree_adj_arrs[src]:
+                        tree_adj_arrs[src][dst] = set()
+                    tree_adj_arrs[src][dst].update(roles)
         
         # TODO
 
