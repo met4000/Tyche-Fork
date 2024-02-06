@@ -776,8 +776,8 @@ class Individual(TycheContext):
 
         for rule_symbol in cls.get_rule_names(obj_type):
             rule = cls.get_class_rule(obj_type, rule_symbol)
-            simple_rules, free_variable_index = rule.as_simple_rules(free_variable_index=free_variable_index)
-            simple_rules.update(simple_rules)
+            new_simple_rules, free_variable_index = rule.as_simple_rules(free_variable_index=free_variable_index)
+            simple_rules.update(new_simple_rules)
 
         # construct modality tree(s) on the equivalence classes
         # ! assumes acyclic
