@@ -834,13 +834,12 @@ class Individual(TycheContext):
 
         rule_worlds: dict[SimpleRuleValue, set[tuple[frozenset[Role], ...]]] = {}
         
-        # TODO test
         root_nodes: set[int] = {i for i in range(len(tree_nodes)) if i not in has_back_edges}
         search_stack: deque[tuple[int, tuple[frozenset[Role], ...]]] = deque((node, ()) for node in root_nodes)
         while search_stack:
             node, role_stack = search_stack.pop()
 
-            _, class_rules = tree_nodes[i]
+            _, class_rules = tree_nodes[node]
             for rule in class_rules:
                 if rule not in rule_worlds:
                     rule_worlds[rule] = {()}
