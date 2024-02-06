@@ -792,11 +792,12 @@ class Individual(TycheContext):
                 # this one, and combine them
 
                 matches: set[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]] = set()
-                for existing_eq_class in equivalence_classes:
+                for existing_obj in equivalence_classes:
+                    existing_eq_class = existing_obj[0]
                     for var in eq_class:
                         if var in existing_eq_class:
                             # => intersection is non-empty
-                            matches.add(existing_eq_class)
+                            matches.add(existing_obj)
                             break
                 equivalence_classes.difference_update(matches)
 
