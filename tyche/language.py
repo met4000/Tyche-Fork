@@ -687,13 +687,13 @@ class FirstHashedPair(tuple[T1, T2]):
         return super().__new__(cls, [first, second])
     
     def __eq__(self, __value: object) -> bool:
-        return self[0].__eq__(__value)
+        return self[0] == __value
     
     def __lt__(self, __value: object) -> bool:
-        return self[0].__lt__(__value)
+        return self[0] < __value
     
     def __hash__(self) -> int:
-        return self[0].__hash__()
+        return hash(self[0])
 
 @dataclass(frozen=True)
 class SimpleRuleValue:
