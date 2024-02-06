@@ -6,14 +6,15 @@ can be used as contexts to evaluate aleatoric description logic (ADL)
 sentences. This module also contains many learning strategies that may
 be used to update your belief models based upon ADL observations.
 """
+from collections import deque
 from concurrent.futures import Future
 from math import isnan
-from typing import Dict, FrozenSet, List, Set, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Deque, Dict, FrozenSet, Set, Tuple, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
 
-from tyche.language import ADLVariable, CompatibleWithRule, Equations, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
+from tyche.language import ADLVariable, CompatibleWithRule, Equations, ExclusiveRoleDist, FirstHashedPair, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
     ReferenceBackedRole, RoleDist
 
@@ -771,25 +772,26 @@ class Individual(TycheContext):
 
         # construct simple rules from rules
 
-        rules: Set[SimpleRuleValue] = set()
+        simple_rules: Set[SimpleRuleValue] = set()
 
         for rule_symbol in cls.get_rule_names(obj_type):
             rule = cls.get_class_rule(obj_type, rule_symbol)
             simple_rules, free_variable_index = rule.as_simple_rules(free_variable_index=free_variable_index)
-            rules.update(simple_rules)
+            simple_rules.update(simple_rules)
 
-        # construct modality tree on the equivalence classes
+        # construct modality tree(s) on the equivalence classes
         # ! assumes acyclic
-            
-        equivalence_classes: Set[FrozenSet[ADLVariable]] = set()
+        
+        # equivalence classes for the variables (along with the respective rules for that equivalence class)
+        equivalence_classes: Set[FirstHashedPair[FrozenSet[ADLVariable], FrozenSet[SimpleRuleValue]]] = set()
 
-        for rule in rules:
+        for rule in simple_rules:
             rule_eq_classes = rule.variable_equivalence_classes()
-            for eq_class in rule_eq_classes:
+            for eq_class, class_rules in rule_eq_classes:
                 # find all equivalence classes that overlap with
                 # this one, and combine them
 
-                matches: Set[FrozenSet[ADLVariable]] = set()
+                matches: Set[FirstHashedPair[FrozenSet[ADLVariable], FrozenSet[SimpleRuleValue]]] = set()
                 for existing_eq_class in equivalence_classes:
                     for var in eq_class:
                         if var in existing_eq_class:
@@ -798,29 +800,57 @@ class Individual(TycheContext):
                             break
                 equivalence_classes.difference_update(matches)
 
-                combined_eq_class = frozenset.union(*matches, eq_class)
-                equivalence_classes.add(combined_eq_class)
+                matches_vars = frozenset(vars for vars, _ in matches)
+                matches_rules = frozenset(rules for _, rules in matches)
+
+                combined_eq_class_vars = frozenset.union(*matches_vars, eq_class)
+                combined_eq_class_rules = frozenset.union(*matches_rules, class_rules)
+
+                equivalence_classes.add(FirstHashedPair(combined_eq_class_vars, combined_eq_class_rules))
 
         tree_nodes = [*equivalence_classes]
 
         variable_equivalence_class_map: Dict[ADLVariable, int] = {}
         for i in range(len(tree_nodes)):
-            eq_class = tree_nodes[i]
+            eq_class, _ = tree_nodes[i]
             for var in eq_class:
                 variable_equivalence_class_map[var] = i
         
-        tree_adj_arrs: Dict[int, Dict[int, Set[Role]]] = {i: {} for i in range(len(tree_nodes))}
-        for rule in rules:
+        tree_edges: Dict[int, Dict[int, Set[Role]]] = {i: {} for i in range(len(tree_nodes))}
+        has_back_edges: Set[int] = {}
+        for rule in simple_rules:
             edges = rule.equivalence_class_tree_edges(variable_equivalence_class_map)
             for src, dst_dict in edges.items():
                 for dst, roles in dst_dict.items():
-                    if dst not in tree_adj_arrs[src]:
-                        tree_adj_arrs[src][dst] = set()
-                    tree_adj_arrs[src][dst].update(roles)
+                    if dst not in tree_edges[src]:
+                        tree_edges[src][dst] = set()
+                    tree_edges[src][dst].update(roles)
+                    has_back_edges.add(dst)
         
-        # TODO
+        # construct the list of modalities for each rule by iterating over the trees; finding the roots of the tree and traversing (DFS) starting at each root
+        # * could be made more efficient by directly constructing the equations during this step, rather than making an intermediate construction
+        # * could find overlap between starting at different roots and reuse search
 
-        return rules
+        rule_worlds: Dict[SimpleRuleValue, Set[Tuple[FrozenSet[Role], ...]]] = {}
+        
+        # TODO test
+        root_nodes: Set[int] = {i for i in range(len(tree_nodes)) if i not in has_back_edges}
+        search_stack: Deque[Tuple[int, Tuple[FrozenSet[Role], ...]]] = deque((node, ()) for node in root_nodes)
+        while search_stack:
+            node, role_stack = search_stack.pop()
+
+            _, class_rules = tree_nodes[i]
+            for rule in class_rules:
+                if rule not in rule_worlds:
+                    rule_worlds[rule] = {()}
+                rule_worlds[rule].add(role_stack)
+
+            for child_node, roles in tree_edges[node].items():
+                search_stack.append((child_node, role_stack + (frozenset(roles), )))
+        
+        # TODO make equations (pass dimensions)
+
+        return rule_worlds
     
     @classmethod
     def set_solver(cls, solver: TycheEquationSolver) -> WrappedIndividualSolver:

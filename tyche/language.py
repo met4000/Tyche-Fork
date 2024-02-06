@@ -675,6 +675,26 @@ def _format_dict(
     return f"{prefix}{join_by.join(key_values)}{suffix}"
 
 
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+class FirstHashedPair(Tuple[T1, T2]):
+    """
+    A pair that behaves as the first value for hashing and sorting.
+    Can be used to store metadata on elements in a set.
+    """
+
+    def __new__(cls, first: T1, second: T2):
+        return super().__new__(cls, [first, second])
+    
+    def __eq__(self, __value: object) -> bool:
+        return self.first.__eq__(__value)
+    
+    def __lt__(self, __value: object) -> bool:
+        return self.first.__lt__(__value)
+    
+    def __hash__(self) -> int:
+        return self.first.__hash__()
+
 @dataclass(frozen=True)
 class SimpleRuleValue:
     """
@@ -689,7 +709,7 @@ class SimpleRuleValue:
     variable: Final[ADLVariable]
     expression: Final[ADLNode]
 
-    def variable_equivalence_classes(self) -> FrozenSet[FrozenSet[ADLVariable]]:
+    def variable_equivalence_classes(self) -> FrozenSet[FirstHashedPair[FrozenSet[ADLVariable], FrozenSet[SimpleRuleValue]]]: # ! TODO
         normal_classes, modality_classes = self.expression.variable_equivalence_classes()
         if len(normal_classes) > 0:
             normal_classes = frozenset(normal_class.union({self.variable}) for normal_class in normal_classes)
@@ -700,7 +720,7 @@ class SimpleRuleValue:
     def equivalence_class_tree_edges(self, var_map: Dict[ADLVariable, int]) -> Dict[int, Dict[int, Set[Role]]]:
         lhs_class = var_map[self.variable]
 
-        edges: Dict[int, Dict[int, Role]] = {lhs_class: {}}
+        edges: Dict[int, Dict[int, Set[Role]]] = {lhs_class: {}}
         role_vars = self.expression.modality_variables()
         for role, vars in role_vars.items():
             for var in vars: # not optimal - could be redundant
