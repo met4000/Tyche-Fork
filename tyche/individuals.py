@@ -9,7 +9,7 @@ be used to update your belief models based upon ADL observations.
 from collections import deque
 from concurrent.futures import Future
 from math import isnan
-from typing import Deque, Dict, FrozenSet, Set, Tuple, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
@@ -738,13 +738,13 @@ class Individual(TycheContext):
         return self.eval_rule(rule).direct_eval(self, epsilon=epsilon)
     
     # ? should probably rename to 'is_consistent' or something
-    def check_rules(self, *, epsilon: Optional[float | Dict[CompatibleWithRule, float | None]] = None) -> bool:
+    def check_rules(self, *, epsilon: Optional[float | dict[CompatibleWithRule, float | None]] = None) -> bool:
         """
         TODO description
         Runs `check_rule` on every rule.
         """
         def get_epsilon(rule: CompatibleWithRule) -> float:
-            if isinstance(epsilon, Dict):
+            if isinstance(epsilon, dict):
                 return epsilon.get(rule)
             return epsilon
         
@@ -772,7 +772,7 @@ class Individual(TycheContext):
 
         # construct simple rules from rules
 
-        simple_rules: Set[SimpleRuleValue] = set()
+        simple_rules: set[SimpleRuleValue] = set()
 
         for rule_symbol in cls.get_rule_names(obj_type):
             rule = cls.get_class_rule(obj_type, rule_symbol)
@@ -783,7 +783,7 @@ class Individual(TycheContext):
         # ! assumes acyclic
         
         # equivalence classes for the variables (along with the respective rules for that equivalence class)
-        equivalence_classes: Set[FirstHashedPair[FrozenSet[ADLVariable], FrozenSet[SimpleRuleValue]]] = set()
+        equivalence_classes: set[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]] = set()
 
         for rule in simple_rules:
             rule_eq_classes = rule.variable_equivalence_classes()
@@ -791,7 +791,7 @@ class Individual(TycheContext):
                 # find all equivalence classes that overlap with
                 # this one, and combine them
 
-                matches: Set[FirstHashedPair[FrozenSet[ADLVariable], FrozenSet[SimpleRuleValue]]] = set()
+                matches: set[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]] = set()
                 for existing_eq_class in equivalence_classes:
                     for var in eq_class:
                         if var in existing_eq_class:
@@ -810,14 +810,14 @@ class Individual(TycheContext):
 
         tree_nodes = [*equivalence_classes]
 
-        variable_equivalence_class_map: Dict[ADLVariable, int] = {}
+        variable_equivalence_class_map: dict[ADLVariable, int] = {}
         for i in range(len(tree_nodes)):
             eq_class, _ = tree_nodes[i]
             for var in eq_class:
                 variable_equivalence_class_map[var] = i
         
-        tree_edges: Dict[int, Dict[int, Set[Role]]] = {i: {} for i in range(len(tree_nodes))}
-        has_back_edges: Set[int] = {}
+        tree_edges: dict[int, dict[int, set[Role]]] = {i: {} for i in range(len(tree_nodes))}
+        has_back_edges: set[int] = {}
         for rule in simple_rules:
             edges = rule.equivalence_class_tree_edges(variable_equivalence_class_map)
             for src, dst_dict in edges.items():
@@ -831,11 +831,11 @@ class Individual(TycheContext):
         # * could be made more efficient by directly constructing the equations during this step, rather than making an intermediate construction
         # * could find overlap between starting at different roots and reuse search
 
-        rule_worlds: Dict[SimpleRuleValue, Set[Tuple[FrozenSet[Role], ...]]] = {}
+        rule_worlds: dict[SimpleRuleValue, set[tuple[frozenset[Role], ...]]] = {}
         
         # TODO test
-        root_nodes: Set[int] = {i for i in range(len(tree_nodes)) if i not in has_back_edges}
-        search_stack: Deque[Tuple[int, Tuple[FrozenSet[Role], ...]]] = deque((node, ()) for node in root_nodes)
+        root_nodes: set[int] = {i for i in range(len(tree_nodes)) if i not in has_back_edges}
+        search_stack: deque[tuple[int, tuple[frozenset[Role], ...]]] = deque((node, ()) for node in root_nodes)
         while search_stack:
             node, role_stack = search_stack.pop()
 
@@ -878,13 +878,13 @@ class Individual(TycheContext):
         return solver_out
     
     @classmethod
-    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[Dict[str, SympyExpr] | None]:
+    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[dict[str, SympyExpr] | None]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_future = cls.get_solver().example_exprs_solution_future(exprs, vars)
         return solver_future
     
     @classmethod
-    def get_consistent_example(cls, obj_type: type['Individual']) -> Dict[str, SympyExpr] | None:
+    def get_consistent_example(cls, obj_type: type['Individual']) -> dict[str, SympyExpr] | None:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_out = cls.get_solver().example_exprs_solution(exprs, vars)
         return solver_out

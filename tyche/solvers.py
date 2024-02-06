@@ -5,7 +5,7 @@ by individuals for certain calculations (e.g. satisfiability).
 from __future__ import annotations
 from concurrent.futures import Future
 import logging
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar
+from typing import Any, Callable, Literal, Optional, TypeVar
 
 from sympy import Expr as SympyExpr
 from sympy.parsing.mathematica import parse_mathematica
@@ -40,7 +40,7 @@ class TycheEquationSolver:
         raise NotImplementedError("__exit__ is unimplemented for " + type(self).__name__)
     
     
-    def are_exprs_satisfiable_future(self, exprs: List[str], vars: List[str]) -> Future[bool | None]:
+    def are_exprs_satisfiable_future(self, exprs: list[str], vars: list[str]) -> Future[bool | None]:
         """
         Returns None if the answer was not found (e.g. timeout, or not high enough precision),
         Otherwise, returns True if there exists some solution to the given expressions
@@ -51,7 +51,7 @@ class TycheEquationSolver:
         solution_future = self.example_exprs_solution_future(exprs, vars)
 
         future: Future[bool] = Future()
-        def fn(finished_future: Future[Tuple[bool | None, Any]]):
+        def fn(finished_future: Future[tuple[bool | None, Any]]):
             solution_out = finished_future.result()
             solution_satisfiable = solution_out[0]
             future.set_result(solution_satisfiable)
@@ -59,7 +59,7 @@ class TycheEquationSolver:
         solution_future.add_done_callback(fn)
         return future
     
-    def are_exprs_satisfiable(self, exprs: List[str], vars: List[str]) -> bool | None:
+    def are_exprs_satisfiable(self, exprs: list[str], vars: list[str]) -> bool | None:
         """
         Returns None if the answer was not found (e.g. timeout, or not high enough precision),
         Otherwise, returns True if there exists some solution to the given expressions
@@ -70,7 +70,7 @@ class TycheEquationSolver:
         return self.are_exprs_satisfiable_future(exprs, vars).result()
     
     
-    def example_exprs_solution_future(self, exprs: List[str], vars: List[str]) -> Future[Tuple[Literal[False] | None, None] | Tuple[Literal[True], Dict[str, SympyExpr]]]:
+    def example_exprs_solution_future(self, exprs: list[str], vars: list[str]) -> Future[tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]]:
         """
         Returns two values; the first will be None if no solution was found (e.g. timeout, or not enough precision),
         False if no solution exists, and True if a solution was found.
@@ -78,7 +78,7 @@ class TycheEquationSolver:
         """
         raise NotImplementedError("example_exprs_solution_future is unimplemented for " + type(self).__name__)
     
-    def example_exprs_solution(self, exprs: List[str], vars: List[str]) -> Tuple[Literal[False] | None, None] | Tuple[Literal[True], Dict[str, SympyExpr]]:
+    def example_exprs_solution(self, exprs: list[str], vars: list[str]) -> tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]:
         """
         Returns two values; the first will be None if no solution was found (e.g. timeout, or not enough precision),
         False if no solution exists, and True if a solution was found.
@@ -179,19 +179,19 @@ class TycheMathematicaSolver(TycheEquationSolver):
         solver_future.add_done_callback(fn)
         return future
     
-    def are_exprs_satisfiable_future(self, exprs: List[str], vars: List[str]) -> Future[bool | None]:
+    def are_exprs_satisfiable_future(self, exprs: list[str], vars: list[str]) -> Future[bool | None]:
         exprs_str = " && ".join([f"({expr})" for expr in exprs])
         vars_str = f'{{{", ".join([f"({var})" for var in vars])}}}'
 
         solver_in = wlexpr(f"Resolve[Exists[{vars_str}, {exprs_str}], Reals]")
         return self.exec_mathematica_query(solver_in, bool)
     
-    def example_exprs_solution_future(self, exprs: List[str], vars: List[str]) -> Future[Tuple[Literal[False] | None, None] | Tuple[Literal[True], Dict[str, SympyExpr]]]:
+    def example_exprs_solution_future(self, exprs: list[str], vars: list[str]) -> Future[tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]]:
         exprs_str = " && ".join([f"({expr})" for expr in exprs])
         vars_str = f'{{{", ".join([f"({var})" for var in vars])}}}'
 
         solver_in = wlexpr(f"FindInstance[{exprs_str}, {vars_str}, Reals] /. (var_ -> value_) :> (var -> ToString[value, InputForm])")
-        def fn(wrapped_result: Tuple[Tuple[WLSymbol, ...]]) -> Tuple[Literal[False] | None, None] | Tuple[True, Dict[str, SympyExpr]]:
+        def fn(wrapped_result: tuple[tuple[WLSymbol, ...]]) -> tuple[Literal[False] | None, None] | tuple[True, dict[str, SympyExpr]]:
             # ! TODO handle returning `None, None`
 
             if not len(wrapped_result) > 0:
@@ -200,7 +200,7 @@ class TycheMathematicaSolver(TycheEquationSolver):
             rules = wrapped_result[0]
 
             vars_set = set(vars)
-            solution: Dict[str, SympyExpr] = {}
+            solution: dict[str, SympyExpr] = {}
             for rule in rules:
                 full_name = str(rule[0])
                 if not isinstance(full_name, str):
