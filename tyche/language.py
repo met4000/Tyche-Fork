@@ -687,13 +687,13 @@ class FirstHashedPair(tuple[T1, T2]):
         return super().__new__(cls, [first, second])
     
     def __eq__(self, __value: object) -> bool:
-        return self.first.__eq__(__value)
+        return self[0].__eq__(__value)
     
     def __lt__(self, __value: object) -> bool:
-        return self.first.__lt__(__value)
+        return self[0].__lt__(__value)
     
     def __hash__(self) -> int:
-        return self.first.__hash__()
+        return self[0].__hash__()
 
 @dataclass(frozen=True)
 class SimpleRuleValue:
@@ -709,13 +709,17 @@ class SimpleRuleValue:
     variable: Final[ADLVariable]
     expression: Final[ADLNode]
 
-    def variable_equivalence_classes(self) -> frozenset[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]]: # ! TODO
+    def variable_equivalence_classes(self) -> frozenset[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]]:
         normal_classes, modality_classes = self.expression.variable_equivalence_classes()
         if len(normal_classes) > 0:
             normal_classes = frozenset(normal_class.union({self.variable}) for normal_class in normal_classes)
         else:
             normal_classes = frozenset([frozenset([self.variable])])
-        return normal_classes.union(modality_classes)
+        
+        normal_classes_w_rules = frozenset((eq_class, frozenset([self])) for eq_class in normal_classes)
+        modality_classes_w_rules = frozenset((eq_class, frozenset()) for eq_class in modality_classes)
+
+        return frozenset.union(normal_classes_w_rules, modality_classes_w_rules)
     
     def equivalence_class_tree_edges(self, var_map: dict[ADLVariable, int]) -> dict[int, dict[int, set[Role]]]:
         lhs_class = var_map[self.variable]

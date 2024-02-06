@@ -817,7 +817,7 @@ class Individual(TycheContext):
                 variable_equivalence_class_map[var] = i
         
         tree_edges: dict[int, dict[int, set[Role]]] = {i: {} for i in range(len(tree_nodes))}
-        has_back_edges: set[int] = {}
+        has_back_edges: set[int] = set()
         for rule in simple_rules:
             edges = rule.equivalence_class_tree_edges(variable_equivalence_class_map)
             for src, dst_dict in edges.items():
