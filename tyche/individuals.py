@@ -9,6 +9,7 @@ be used to update your belief models based upon ADL observations.
 from collections import deque
 from concurrent.futures import Future
 from math import isnan
+from operator import attrgetter
 from typing import TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
@@ -848,9 +849,24 @@ class Individual(TycheContext):
             for child_node, roles in tree_edges[node].items():
                 search_stack.append((child_node, role_stack + (frozenset(roles), )))
         
-        # TODO make equations (pass dimensions)
+        # make the list of equations from the rule worlds
+        
+        equations: list[str] = []
+        variables: set[str] = set()
+        for rule, role_stacks in rule_worlds.items():
+            eq_generator = rule.as_equation(simplify=simplify)
+            for role_stack in role_stacks:
+                eq_expr, eq_vars = eq_generator(role_stack)
+                equations.append(eq_expr)
+                variables.update(eq_vars)
 
-        return rule_worlds
+        var_equations: list[str] = []
+        for var in variables:
+            var_str = var if simplify else f"({var})"
+            var_equations.append(f"0 <= {var_str}")
+            var_equations.append(f"{var_str} <= 1")
+
+        return Equations(equations=(equations + var_equations), variables=list(variables))
     
     @classmethod
     def set_solver(cls, solver: TycheEquationSolver) -> WrappedIndividualSolver:

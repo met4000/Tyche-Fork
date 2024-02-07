@@ -734,6 +734,25 @@ class SimpleRuleValue:
                 edges[lhs_class][var_class].add(role)
         
         return edges
+    
+    def as_equation(self, *, simplify: bool = False) -> Callable[[tuple[frozenset[Role], ...]], tuple[str, set[str]]]:
+        """
+        TODO description
+        Does not output variable range restriction equations.
+        """
+        lhs_expr_gen = self.variable.as_equation_expression(simplify=simplify)
+        rhs_expr_gen = self.expression.as_equation_expression(simplify=simplify)
+
+        def generator(role_stack: tuple[frozenset[Role], ...]) -> tuple[str, set[str]]:
+            lhs_expr, lhs_vars = lhs_expr_gen(role_stack)
+            rhs_expr, rhs_vars = rhs_expr_gen(role_stack)
+
+            eq = f"{lhs_expr} == {rhs_expr}"
+            vars = set.union(lhs_vars, rhs_vars)
+
+            return eq, vars
+
+        return generator
 
 @dataclass
 class Equations:
@@ -1081,6 +1100,18 @@ class ADLNode:
         That refers to the equivalence classes {{C}, {E, F}}.
         """
         raise NotImplementedError("variable_equivalence_classes is unimplemented for " + type(self).__name__)
+    
+    def as_equation_expression(self, *, simplify: bool = False) -> Callable[[tuple[frozenset[Role], ...]], tuple[str, set[str]]]:
+        """
+        TODO documentation
+        Assumes the ADLNode is simple (not nested).
+        Returns a function that accepts a 'base' tuple of roles, and returns
+        the node as an expression along with the associated variables.
+
+        If simplify is True, brackets will be omitted and expressions simplified
+        where likely safe (identical behaviour not guaranteed). # ! todo verify, if possible.
+        """
+        raise NotImplementedError("as_equation_expression is unimplemented for " + type(self).__name__)
     
     def modality_variables(self) -> dict[Role, frozenset[ADLVariable]]:
         """
