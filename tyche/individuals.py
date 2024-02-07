@@ -8,7 +8,8 @@ be used to update your belief models based upon ADL observations.
 """
 from collections import deque
 from concurrent.futures import Future
-from math import isnan
+from itertools import product
+from math import isnan, prod
 from operator import attrgetter
 from typing import TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
@@ -850,15 +851,17 @@ class Individual(TycheContext):
                 search_stack.append((child_node, role_stack + (frozenset(roles), )))
         
         # make the list of equations from the rule worlds
-        
+        # TODO test
+
         equations: list[str] = []
         variables: set[str] = set()
         for rule, role_stacks in rule_worlds.items():
-            eq_generator = rule.as_equation(simplify=simplify)
+            eq_generator = rule.get_equation_generator(simplify=simplify)
             for role_stack in role_stacks:
-                eq_expr, eq_vars = eq_generator(role_stack)
-                equations.append(eq_expr)
-                variables.update(eq_vars)
+                for roles in product(*role_stack): # iterate over the crossproduct of the sets
+                    eq_expr, eq_vars = eq_generator(roles)
+                    equations.append(eq_expr)
+                    variables.update(eq_vars)
 
         var_equations: list[str] = []
         for var in variables:

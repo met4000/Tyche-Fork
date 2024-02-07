@@ -735,15 +735,15 @@ class SimpleRuleValue:
         
         return edges
     
-    def as_equation(self, *, simplify: bool = False) -> Callable[[tuple[frozenset[Role], ...]], tuple[str, set[str]]]:
+    def get_equation_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
         """
         TODO description
         Does not output variable range restriction equations.
         """
-        lhs_expr_gen = self.variable.as_equation_expression(simplify=simplify)
-        rhs_expr_gen = self.expression.as_equation_expression(simplify=simplify)
+        lhs_expr_gen = self.variable.get_equation_expression_generator(simplify=simplify)
+        rhs_expr_gen = self.expression.get_equation_expression_generator(simplify=simplify)
 
-        def generator(role_stack: tuple[frozenset[Role], ...]) -> tuple[str, set[str]]:
+        def generator(role_stack: tuple[Role, ...]) -> tuple[str, set[str]]:
             lhs_expr, lhs_vars = lhs_expr_gen(role_stack)
             rhs_expr, rhs_vars = rhs_expr_gen(role_stack)
 
@@ -1101,7 +1101,7 @@ class ADLNode:
         """
         raise NotImplementedError("variable_equivalence_classes is unimplemented for " + type(self).__name__)
     
-    def as_equation_expression(self, *, simplify: bool = False) -> Callable[[tuple[frozenset[Role], ...]], tuple[str, set[str]]]:
+    def get_equation_expression_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
         """
         TODO documentation
         Assumes the ADLNode is simple (not nested).
@@ -1110,8 +1110,9 @@ class ADLNode:
 
         If simplify is True, brackets will be omitted and expressions simplified
         where likely safe (identical behaviour not guaranteed). # ! todo verify, if possible.
+        If False, then the returned value should contain brackets wrapping the expression.
         """
-        raise NotImplementedError("as_equation_expression is unimplemented for " + type(self).__name__)
+        raise NotImplementedError("get_equation_expression_generator is unimplemented for " + type(self).__name__)
     
     def modality_variables(self) -> dict[Role, frozenset[ADLVariable]]:
         """
@@ -1273,6 +1274,14 @@ class Atom(ADLNode):
                 raise ValueError("{} symbols can only contain alpha-numeric or underscore characters{}".format(
                     symbol_type_name, context_suffix
                 ))
+    
+    @staticmethod
+    def symbol_with_modalities(symbol: str, roles: tuple[Role, ...]) -> str:
+        if not roles:
+            return symbol
+        
+        modalities_str = f"({', '.join(role.symbol for role in roles)})"
+        return f"{symbol}_{modalities_str}"
 
     def __str__(self):
         return self.symbol
@@ -1295,19 +1304,23 @@ class Atom(ADLNode):
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
         return frozenset([frozenset([self])]), frozenset()
     
-    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-    #     """
-    #     TODO deal with unsafe atom names (e.g. special chars)
-    #     """
-    #     var = self.symbol
+    def get_equation_expression_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
+        """
+        TODO deal with unsafe atom names (e.g. special chars)
+        """
+        var = self.symbol
 
-    #     try:
-    #         Concept.check_symbol(var)
-    #     except ValueError:
-    #         raise TycheLanguageException(f"special character in variable names not yet supported (`name`: `{var}`)")
+        try:
+            Concept.check_symbol(var)
+        except ValueError:
+            raise TycheLanguageException(f"special character in variable names not yet supported (`name`: `{var}`)")
         
-    #     expr = var if simplify else f"({var})"
-    #     return (expr, {var})
+        def generator(roles: tuple[Role, ...]) -> tuple[str, set[str]]:
+            var_with_modalities = Concept.symbol_with_modalities(var, roles)
+            expr = var_with_modalities if simplify else f"({var_with_modalities})"
+            return expr, {var_with_modalities}
+        
+        return generator
 
     def normal_form(self):
         return self
@@ -1328,12 +1341,6 @@ class Concept(Atom):
 
     def direct_eval(self, context: TycheContext) -> float:
         return context.get_concept(self.symbol)
-    
-    # TODO account for modalities (i.e. for multiple instances of same concepts)
-    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-    #     var = self.symbol
-    #     expr = var if simplify else f"({var})"
-    #     return (expr, {var})
 
     def eval_reference(self, context: TycheContext) -> BakedSymbolReference[float]:
         """ Evaluates to a mutable reference to the value of this concept. """
@@ -1360,10 +1367,10 @@ class Constant(Atom):
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
         return frozenset(), frozenset()
 
-    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-    #     value = str(self.probability)
-    #     expr = value if simplify else f"({value})"
-    #     return (expr, set())
+    def get_equation_expression_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
+        value = str(self.probability)
+        expr = value if simplify else f"({value})"
+        return lambda _: (expr, set())
 
 
 ALWAYS: Final[Constant] = Constant("\u22A4", 1)
@@ -1391,20 +1398,24 @@ class FreeVariable(Atom):
             symbol = str(FreeVariable.global_variable_count)
             FreeVariable.global_variable_count += 1
         
-        super().__init__(f"_free_variable${symbol}", special_symbol=True)
+        super().__init__(f"_freeVariable${symbol}", special_symbol=True)
 
     def direct_eval(self, context: TycheContext) -> float:
         raise TycheLanguageException(f"Instances of {type(self).__name__} cannot be evaluated")
     
-    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-    #     var = self.symbol
+    def get_equation_expression_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
+        var = self.symbol
 
-    #     # remove leading underscore
-    #     if var[0] == "_":
-    #         var = var[1:]
-
-    #     expr = var if simplify else f"({var})"
-    #     return (expr, {var})
+        # remove leading underscore
+        if var[0] == "_":
+            var = var[1:]
+        
+        def generator(roles: tuple[Role, ...]) -> tuple[str, set[str]]:
+            var_with_modalities = Concept.symbol_with_modalities(var, roles)
+            expr = var_with_modalities if simplify else f"({var_with_modalities})"
+            return expr, {var_with_modalities}
+        
+        return generator
 
 ADLVariable = Concept | FreeVariable
 
@@ -1640,48 +1651,57 @@ class Conditional(ADLNode):
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
         return frozenset([frozenset([self.condition, self.if_yes, self.if_no])]), frozenset()
     
-    # def as_equation_expression(self, *, simplify: bool = False) -> EquationExpression:
-    #     # simplify special cases
+    def get_equation_expression_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
+        # simplify special cases
 
-    #     condition_expr, condition_vars = self.condition.as_equation_expression(simplify = simplify)
-    #     if simplify and self.is_known_noop():
-    #         return (condition_expr, condition_vars)
+        condition_gen = self.condition.get_equation_expression_generator(simplify=simplify)
+        if simplify and self.is_known_noop():
+            return condition_gen
 
-    #     if simplify and self.is_known_complement():
-    #         A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
-    #         expr = f"1 - {A_str}"
-    #         return (expr, condition_vars)
+        if simplify and self.is_known_complement():
+            def generator(roles: tuple[Role, ...]) -> tuple[str, set[str]]:
+                condition_expr, condition_vars = condition_gen(roles)
+                expr = f"1 - {condition_expr}"
+                return expr, condition_vars
+            return generator
         
-    #     if_yes_expr, if_yes_vars = self.if_yes.as_equation_expression(simplify = simplify)
-    #     if simplify and self.is_known_conjunction():
-    #         A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
-    #         B_str = f"({if_yes_expr})" if not isinstance(self.if_yes, Atom) else if_yes_expr
+        if_yes_gen = self.if_yes.get_equation_expression_generator(simplify=simplify)
+        if simplify and self.is_known_conjunction():
+            def generator(roles: tuple[Role, ...]) -> tuple[str, set[str]]:
+                condition_expr, condition_vars = condition_gen(roles)
+                if_yes_expr, if_yes_vars = if_yes_gen(roles)
 
-    #         expr = f"{A_str} * {B_str}"
-    #         vars = set.union(condition_vars, if_yes_vars)
-    #         return (expr, vars)
+                expr = f"{condition_expr} * {if_yes_expr}"
+                vars = set.union(condition_vars, if_yes_vars)
+                return expr, vars
+            return generator
         
-    #     if_no_expr, if_no_vars = self.if_no.as_equation_expression(simplify = simplify)
-    #     if simplify and self.is_known_disjunction():
-    #         A_str = f"({condition_expr})" if not isinstance(self.condition, Atom) else condition_expr
-    #         B_str = f"({if_no_expr})" if not isinstance(self.if_no, Atom) else if_no_expr
+        if_no_gen = self.if_no.get_equation_expression_generator(simplify=simplify)
+        if simplify and self.is_known_disjunction():
+            def generator(roles: tuple[Role, ...]) -> tuple[str, set[str]]:
+                condition_expr, condition_vars = condition_gen(roles)
+                if_no_expr, if_no_vars = if_no_gen(roles)
 
-    #         expr = f"{A_str} + {B_str} - {A_str} * {B_str}"
-    #         vars = set.union(condition_vars, if_no_vars)
-    #         return (expr, vars)
+                expr = f"{condition_expr} + {if_no_expr} - {condition_expr} * {if_no_expr}"
+                vars = set.union(condition_vars, if_no_vars)
+                return expr, vars
+            return generator
         
-    #     # standard case
+        # standard case
 
-    #     condition_str = f"({condition_expr})" if simplify and not isinstance(self.condition, Atom) else condition_expr
-    #     if_yes_str = f"({if_yes_expr})" if simplify and not isinstance(self.if_yes, Atom) else if_yes_expr
-    #     if_no_str = f"({if_no_expr})" if simplify and not isinstance(self.if_no, Atom) else if_no_expr
+        def generator(roles: tuple[Role, ...]) -> tuple[str, set[str]]:
+            condition_expr, condition_vars = condition_gen(roles)
+            if_yes_expr, if_yes_vars = if_yes_gen(roles)
+            if_no_expr, if_no_vars = if_no_gen(roles)
 
-    #     expr = f"{condition_str} * {if_yes_str} + (1 - {condition_str}) * {if_no_str}"
-    #     expr_str = f"({expr})" if not simplify else expr
-    #     vars = set.union(condition_vars, if_yes_vars, if_no_vars)
+            expr = f"{condition_expr} * {if_yes_expr} + (1 - {condition_expr}) * {if_no_expr}"
+            expr_str = f"({expr})" if not simplify else expr
+            vars = set.union(condition_vars, if_yes_vars, if_no_vars)
 
-    #     return (expr_str, vars)
-
+            return expr_str, vars
+        
+        return generator
+    
     def normal_form(self):
         """
         Returns the tree normal form of the conditional,
@@ -1765,7 +1785,7 @@ class Given(ADLNode):
         raise IndexError("The Given operator must be evaluated specially by the context")
 
     # ? TODO 
-    # def as_equation_expression(self) -> EquationExpression:
+    # def get_equation_expression_generator(self) -> EquationExpression:
     #     raise TycheLanguageException("not yet implemented")
 
     def normal_form(self):
@@ -1880,9 +1900,9 @@ class Expectation(ADLNode):
     def modality_variables(self) -> dict[Role, frozenset[ADLVariable]]:
         return {self.role: frozenset([self.eval_node, self.given_node])}
     
-    # def as_equation_expression(self) -> EquationExpression:
-    #     # TODO
-    #     raise TycheLanguageException("not yet implemented")
+    def get_equation_expression_generator(self, *, simplify: bool = False) -> Callable[[tuple[Role, ...]], tuple[str, set[str]]]:
+        # TODO
+        raise TycheLanguageException("not yet implemented")
 
 
 class Exists(ADLNode):
@@ -1919,7 +1939,7 @@ class Exists(ADLNode):
         role_value = context.eval_role(self.role)
         return role_value.calculate_exists()
     
-    # def as_equation_expression(self) -> EquationExpression:
+    # def get_equation_expression_generator(self) -> EquationExpression:
     #     # TODO
     #     raise TycheLanguageException("not yet implemented")
 
@@ -1978,7 +1998,7 @@ class LeastFixedPoint(ADLNode):
         """
         raise TycheLanguageException("not yet implemented")
     
-    # def as_equation_expression(self) -> EquationExpression:
+    # def get_equation_expression_generator(self) -> EquationExpression:
     #     # TODO
     #     raise TycheLanguageException("not yet implemented")
 
