@@ -4,6 +4,7 @@ logic (ADL) sentences, and the maths for their evaluation.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from itertools import chain
 from math import isnan
 from typing import Final, cast, Optional, Union, NewType, TypeVar, Iterable, Callable
 
@@ -730,10 +731,18 @@ class EquationsObj:
         self.equations.update(*[obj.equations for obj in objs])
 
     @staticmethod
-    def union(expr_lambda: Callable[..., str | None] | None, *objs: EquationsObj) -> EquationsObj:
-        expr = None if expr_lambda is None else expr_lambda(*[obj.expression for obj in objs])
+    def union(expr_lambda: Callable[..., str | None] | str | None, *objs: EquationsObj) -> EquationsObj:
+        expr: str | None
+        if expr_lambda is None:
+            expr = None
+        elif callable(expr_lambda):
+            expr = expr_lambda(*[obj.expression for obj in objs])
+        else:
+            expr = expr_lambda
+        
         eq_obj = EquationsObj(expr, {}, set())
         eq_obj.update(*objs)
+        
         return eq_obj
 
 @dataclass(frozen=True)
@@ -785,13 +794,13 @@ class SimpleRuleValue:
         
         return edges
     
-    def get_equation_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
+    def get_equation_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
         """
         TODO description
         Does not output variable range restriction equations.
         """
-        lhs_expr_gen = self.variable.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
-        rhs_expr_gen = self.expression.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
+        lhs_expr_gen, free_variable_index = self.variable.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=simplify)
+        rhs_expr_gen, free_variable_index = self.expression.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=simplify)
 
         def generator(role_stack: tuple[Role, ...]) -> EquationsObj:
             lhs_obj = lhs_expr_gen(role_stack)
@@ -803,7 +812,7 @@ class SimpleRuleValue:
             )
             return eq_obj
 
-        return generator
+        return generator, free_variable_index
 
 def make_var_and_rule(expr: ADLNode, *, free_variable_index: int) -> tuple[ADLVariable, frozenset[SimpleRuleValue], int]:
     """
@@ -1148,7 +1157,7 @@ class ADLNode:
         """
         raise NotImplementedError("variable_equivalence_classes is unimplemented for " + type(self).__name__)
     
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
         """
         TODO documentation
         Assumes the ADLNode is simple (not nested).
@@ -1329,6 +1338,19 @@ class Atom(ADLNode):
         
         modalities_str = f"({', '.join(role.symbol for role in roles)})"
         return f"{symbol}_{modalities_str}"
+    
+    @staticmethod
+    def symbol_with_world(symbol_with_modalities: str, world: str) -> str:
+        """
+        Expects a symbol with modalities already applied.
+        Produces a symbol with the world name applied.
+        """
+        if not world:
+            return symbol_with_modalities
+        
+        Concept.check_symbol(world, symbol_type_name="world")
+        
+        return f"{symbol_with_modalities}_({world})"
 
     def __str__(self):
         return self.symbol
@@ -1351,7 +1373,7 @@ class Atom(ADLNode):
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
         return frozenset([frozenset([self])]), frozenset()
     
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
         """
         TODO deal with unsafe atom names (e.g. special chars)
         """
@@ -1367,7 +1389,7 @@ class Atom(ADLNode):
             expr = var_with_modalities if simplify else f"({var_with_modalities})"
             return EquationsObj(expr, {var_with_modalities: VariableBounds(0, 1)}, set())
         
-        return generator
+        return generator, free_variable_index
 
     def normal_form(self):
         return self
@@ -1414,10 +1436,10 @@ class Constant(Atom):
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
         return frozenset(), frozenset()
 
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
         value = str(self.probability)
         expr = value if simplify else f"({value})"
-        return lambda _: EquationsObj(expr, {}, set())
+        return lambda _: EquationsObj(expr, {}, set()), free_variable_index
 
 
 ALWAYS: Final[Constant] = Constant("\u22A4", 1)
@@ -1450,7 +1472,7 @@ class FreeVariable(Atom):
     def direct_eval(self, context: TycheContext) -> float:
         raise TycheLanguageException(f"Instances of {type(self).__name__} cannot be evaluated")
     
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
         var = self.symbol
 
         # remove leading underscore
@@ -1462,7 +1484,7 @@ class FreeVariable(Atom):
             expr = var_with_modalities if simplify else f"({var_with_modalities})"
             return EquationsObj(expr, {var_with_modalities: VariableBounds(0, 1)}, set())
         
-        return generator
+        return generator, free_variable_index
 
 ADLVariable = Concept | FreeVariable
 
@@ -1698,33 +1720,33 @@ class Conditional(ADLNode):
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
         return frozenset([frozenset([self.condition, self.if_yes, self.if_no])]), frozenset()
     
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
         # simplify special cases
 
-        condition_gen = self.condition.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
+        condition_gen, free_variable_index = self.condition.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=simplify)
         if simplify and self.is_known_noop():
-            return condition_gen
+            return condition_gen, free_variable_index
 
         if simplify and self.is_known_complement():
             def generator(roles: tuple[Role, ...]) -> EquationsObj:
                 condition_obj = condition_gen(roles)
                 expr = f"1 - {condition_obj.expression}"
                 return EquationsObj(expr, condition_obj.variables, condition_obj.equations)
-            return generator
+            return generator, free_variable_index
         
-        if_yes_gen = self.if_yes.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
+        if_yes_gen, free_variable_index = self.if_yes.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=simplify)
         if simplify and self.is_known_conjunction():
             return lambda roles: EquationsObj.union(
                 lambda condition_expr, if_yes_expr: f"{condition_expr} * {if_yes_expr}",
                 condition_gen(roles), if_yes_gen(roles)
-            )
+            ), free_variable_index
         
-        if_no_gen = self.if_no.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
+        if_no_gen, free_variable_index = self.if_no.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=simplify)
         if simplify and self.is_known_disjunction():
             return lambda roles: EquationsObj.union(
                 lambda condition_expr, if_no_expr: f"{condition_expr} + {if_no_expr} - {condition_expr} * {if_no_expr}",
                 condition_gen(roles), if_no_gen(roles)
-            )
+            ), free_variable_index
         
         # standard case
 
@@ -1733,7 +1755,7 @@ class Conditional(ADLNode):
             expr_str = f"({expr})" if not simplify else expr
             return expr_str
         
-        return lambda roles: EquationsObj.union(expr_str, condition_gen(roles), if_yes_gen(roles), if_no_gen(roles))
+        return lambda roles: EquationsObj.union(expr_str, condition_gen(roles), if_yes_gen(roles), if_no_gen(roles)), free_variable_index
     
     def normal_form(self):
         """
@@ -1933,29 +1955,86 @@ class Expectation(ADLNode):
     def modality_variables(self) -> dict[Role, frozenset[ADLVariable]]:
         return {self.role: frozenset([self.eval_node, self.given_node])}
     
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], *, simplify: bool = False) -> Callable[[tuple[Role, ...]], EquationsObj]:
-        eval_gen = self.eval_node.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
-        given_gen = self.given_node.get_equation_expression_generator(equivalence_class_size, simplify=simplify)
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[Role, ...]], EquationsObj], int]:
+        eval_gen, free_variable_index = self.eval_node.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=True) # explicitly simplify
+        given_gen, free_variable_index = self.given_node.get_equation_expression_generator(equivalence_class_size, free_variable_index, simplify=True) # explicitly simplify
 
-        n_terms: int = equivalence_class_size[cast(ADLVariable, self.eval_node)]
-        if n_terms != equivalence_class_size[cast(ADLVariable, self.given_node)]:
+        n_terms: int = equivalence_class_size[cast(ADLVariable, self.eval_node)] + 1
+        if n_terms != equivalence_class_size[cast(ADLVariable, self.given_node)] + 1:
             raise TycheLanguageException(f"ADL variables in {type(self).__name__} should be in the same equivalence class")
+        
+        lhs_var = FreeVariable(str(free_variable_index))
+        free_variable_index += 1
+
+        eq_0_var = FreeVariable(str(free_variable_index))
+        free_variable_index += 1
+
+        world_prob_var = FreeVariable(str(free_variable_index))
+        free_variable_index += 1
+
+        def wrap(v: str) -> str:
+            return v if simplify else f"({v})"
         
         def generator(roles: tuple[Role, ...]) -> EquationsObj:
             inner_roles = roles + (self.role, )
             eval_obj = eval_gen(inner_roles)
             given_obj = given_gen(inner_roles)
 
-            eq_obj = EquationsObj.union(None, eval_obj, given_obj)
+            lhs_var_with_modalities = Concept.symbol_with_modalities(lhs_var.symbol, roles)
+            expr = lhs_var_with_modalities if simplify else f"({lhs_var_with_modalities})"
 
-            # TODO sum over versions of var
-            # TODO handle \sum given = 0 (=> division by 0)
-            # expr = f"{condition_expr} * {if_yes_expr}"
-            # vars = set.union(condition_vars, if_yes_vars)
+            eq_0_var_with_modalities = Concept.symbol_with_modalities(eq_0_var.symbol, roles)
+
+            eq_obj = EquationsObj.union(expr, eval_obj, given_obj)
+
+            # See 'Aleatoric Description Logic for Probabilistic Reasoning (Long Version)' (T. French, T. Smoker, 2021)
+            # page 10 for the equations used below.
+            # First equation is derived from how expectations are evaluated.
+            # Second equation is derived from the paper.
+
+            if eval_obj.expression is None:
+                raise TycheLanguageException("eval expr can't be None") # ! TODO
+            eval_var = eval_obj.expression
+            
+            if given_obj.expression is None:
+                raise TycheLanguageException("given expr can't be None") # ! TODO
+            given_var = given_obj.expression
+
+            world_var_terms = {i: Concept.symbol_with_world(world_prob_var.symbol, str(i)) for i in range(1, n_terms + 1)}
+            eval_var_terms = {i: Concept.symbol_with_world(eval_var, str(i)) for i in range(1, n_terms + 1)}
+            given_var_terms = {i: Concept.symbol_with_world(given_var, str(i)) for i in range(1, n_terms + 1)}
+            
+            equation_lhs_sum = " + ".join(wrap(
+                f"{wrap(world_var_terms[i])} * {wrap(given_var_terms[i])}"
+            ) for i in range(1, n_terms + 1))
+            
+            equation1_rhs = " + ".join(wrap(
+                f'{wrap(world_var_terms[i])} * {wrap(eval_var_terms[i])} * {wrap(given_var_terms[i])}'
+            ) for i in range(1, n_terms + 1))
+
+            equation1 = f"({equation_lhs_sum}) * {wrap(lhs_var_with_modalities)} = {equation1_rhs}"
+            equation2 = f"({equation_lhs_sum}) * {wrap(eq_0_var_with_modalities)} + {wrap(lhs_var_with_modalities)} = 1"
+
+            # world vars are a distribution; the sum must be 1
+            world_var_sum = " + ".join(wrap(var) for var in world_var_terms.values())
+            world_var_sum_equation = f"{world_var_sum} = 1"
+
+            eq_obj.equations.update((equation1, equation2, world_var_sum_equation))
+
+            # TODO identity relation?
+            
+            
+            # add variables
+
+            eq_obj.add_var(lhs_var_with_modalities, VariableBounds(0, 1))
+            eq_obj.add_var(eq_0_var_with_modalities, VariableBounds(0, None))
+
+            for var in chain(world_var_terms.values(), eval_var_terms.values(), given_var_terms.values()):
+                eq_obj.add_var(var, VariableBounds(0, 1))
 
             return eq_obj
         
-        return generator
+        return generator, free_variable_index
 
 
 class Exists(ADLNode):

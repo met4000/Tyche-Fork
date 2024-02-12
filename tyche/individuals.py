@@ -764,7 +764,7 @@ class Individual(TycheContext):
         return obj_type.coerce_rule_value(value)
     
     @classmethod
-    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False, free_variable_index: int = 0) -> Equations:
+    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False, free_variable_index: int = 1) -> Equations:
         """
         TODO documentation
 
@@ -856,9 +856,10 @@ class Individual(TycheContext):
 
         root_eq_obj = EquationsObj(None, {}, set()) # .expr is unused
         for rule, role_stacks in rule_worlds.items():
-            eq_generator = rule.get_equation_generator(variable_equivalence_class_size, simplify=simplify)
+            eq_generator, free_variable_index = rule.get_equation_generator(variable_equivalence_class_size, free_variable_index, simplify=simplify)
             for role_stack in role_stacks:
                 for roles in product(*role_stack): # iterate over the crossproduct of the sets
+                    # ! needs to do e.g. (a_1,b_1,c_1), (a_1,b_1,c_2), rather than (a,b,c)_1, (a,b,c)_2
                     root_eq_obj.update(eq_generator(roles))
 
         var_equations: set[str] = set()
