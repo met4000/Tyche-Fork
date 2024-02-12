@@ -9,21 +9,20 @@ be used to update your belief models based upon ADL observations.
 from collections import deque
 from concurrent.futures import Future
 from itertools import product
-from math import isnan, prod
-from operator import attrgetter
+from math import isnan
 from typing import TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
 
-from tyche.language import ADLVariable, CompatibleWithRule, Equations, ExclusiveRoleDist, FirstHashedPair, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
+from tyche.language import ADLVariable, CompatibleWithRule, EquationsObj, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
-    ReferenceBackedRole, RoleDist
+    ReferenceBackedRole, RoleDist, VariableBounds
 
 from tyche.probability import uncertain_bayes_rule
 from tyche.references import SymbolReference, FieldSymbolReference, GuardedSymbolReference, FunctionSymbolReference, \
     BakedSymbolReference
-from tyche.solvers import TycheEquationSolver
+from tyche.solvers import Equations, TycheEquationSolver
 
 
 TycheConceptValue = TypeVar("TycheConceptValue", float, int, bool)
@@ -785,33 +784,33 @@ class Individual(TycheContext):
         # ! assumes acyclic
         
         # equivalence classes for the variables (along with the respective rules for that equivalence class)
-        equivalence_classes: set[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]] = set()
+        equivalence_classes: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
 
         for rule in simple_rules:
             rule_eq_classes = rule.variable_equivalence_classes()
-            for eq_class, class_rules in rule_eq_classes:
+            for eq_class, class_rules in rule_eq_classes.items():
                 # find all equivalence classes that overlap with
                 # this one, and combine them
 
-                matches: set[FirstHashedPair[frozenset[ADLVariable], frozenset[SimpleRuleValue]]] = set()
-                for existing_obj in equivalence_classes:
-                    existing_eq_class = existing_obj[0]
+                matches: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
+                for existing_eq_class, existing_class_rules in equivalence_classes.items():
                     for var in eq_class:
                         if var in existing_eq_class:
                             # => intersection is non-empty
-                            matches.add(existing_obj)
+                            matches[existing_eq_class] = existing_class_rules
                             break
-                equivalence_classes.difference_update(matches)
+                for k, _ in matches.items():
+                    equivalence_classes.pop(k)
 
-                matches_vars = frozenset(vars for vars, _ in matches)
-                matches_rules = frozenset(rules for _, rules in matches)
+                matches_vars = iter(vars for vars, _ in matches.items())
+                matches_rules = iter(rules for _, rules in matches.items())
 
                 combined_eq_class_vars = frozenset.union(*matches_vars, eq_class)
-                combined_eq_class_rules = frozenset.union(*matches_rules, class_rules)
+                combined_eq_class_rules = set.union(*matches_rules, class_rules)
 
-                equivalence_classes.add(FirstHashedPair(combined_eq_class_vars, combined_eq_class_rules))
+                equivalence_classes[combined_eq_class_vars] = combined_eq_class_rules
 
-        tree_nodes = [*equivalence_classes]
+        tree_nodes = [*equivalence_classes.items()]
 
         variable_equivalence_class_map: dict[ADLVariable, int] = {}
         for i in range(len(tree_nodes)):
@@ -829,6 +828,8 @@ class Individual(TycheContext):
                         tree_edges[src][dst] = set()
                     tree_edges[src][dst].update(roles)
                     has_back_edges.add(dst)
+        
+        variable_equivalence_class_size: dict[ADLVariable, int] = {var: len(tree_nodes[i][0]) for var, i in variable_equivalence_class_map.items()}
         
         # construct the list of modalities for each rule by iterating over the trees; finding the roots of the tree and traversing (DFS) starting at each root
         # * could be made more efficient by directly constructing the equations during this step, rather than making an intermediate construction
@@ -853,23 +854,24 @@ class Individual(TycheContext):
         # make the list of equations from the rule worlds
         # TODO test
 
-        equations: list[str] = []
-        variables: set[str] = set()
+        root_eq_obj = EquationsObj(None, {}, set()) # .expr is unused
         for rule, role_stacks in rule_worlds.items():
-            eq_generator = rule.get_equation_generator(simplify=simplify)
+            eq_generator = rule.get_equation_generator(variable_equivalence_class_size, simplify=simplify)
             for role_stack in role_stacks:
                 for roles in product(*role_stack): # iterate over the crossproduct of the sets
-                    eq_expr, eq_vars = eq_generator(roles)
-                    equations.append(eq_expr)
-                    variables.update(eq_vars)
+                    root_eq_obj.update(eq_generator(roles))
 
-        var_equations: list[str] = []
-        for var in variables:
+        var_equations: set[str] = set()
+        for var, bounds in root_eq_obj.variables.items():
             var_str = var if simplify else f"({var})"
-            var_equations.append(f"0 <= {var_str}")
-            var_equations.append(f"{var_str} <= 1")
+            
+            if bounds.lower is not None:
+                var_equations.add(f"{bounds.lower} <= {var_str}")
+            
+            if bounds.upper is not None:
+                var_equations.add(f"{var_str} <= {bounds.upper}")
 
-        return Equations(equations=(equations + var_equations), variables=list(variables))
+        return Equations(equations=list(set.union(root_eq_obj.equations, var_equations)), variables=list(root_eq_obj.variables))
     
     @classmethod
     def set_solver(cls, solver: TycheEquationSolver) -> WrappedIndividualSolver:

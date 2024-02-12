@@ -4,6 +4,7 @@ by individuals for certain calculations (e.g. satisfiability).
 """
 from __future__ import annotations
 from concurrent.futures import Future
+from dataclasses import dataclass
 import logging
 from typing import Any, Callable, Literal, Optional, TypeVar
 
@@ -24,6 +25,16 @@ class TycheSolversException(Exception):
     """
     def __init__(self, message: str):
         self.message = "TycheSolversException: " + message
+
+@dataclass
+class Equations:
+    """
+    TODO description
+    
+    Represents a set of satisfiability equations, and the variables in them.
+    """
+    equations: list[str]
+    variables: list[str]
 
 class TycheEquationSolver:
     """
