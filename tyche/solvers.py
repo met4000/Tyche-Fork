@@ -36,6 +36,9 @@ class Equations:
     equations: list[str]
     variables: list[str]
 
+    def __iter__(self):
+        return iter((self.equations, self.variables))
+
 class TycheEquationSolver:
     """
     An interface for an equation solver.

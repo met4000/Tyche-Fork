@@ -809,6 +809,11 @@ class SimpleRuleValue:
                 lambda lhs_expr, rhs_expr: None if lhs_expr is None or rhs_expr is None else f"{lhs_expr} == {rhs_expr}",
                 lhs_obj, rhs_obj
             )
+
+            if eq_obj.expression is not None:
+                eq_obj.equations.add(eq_obj.expression)
+                eq_obj.expression = None
+
             return eq_obj
 
         return generator, free_variable_index

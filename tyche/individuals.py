@@ -10,7 +10,7 @@ from collections import deque
 from concurrent.futures import Future
 from itertools import product
 from math import isnan
-from typing import TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Literal, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
@@ -898,25 +898,25 @@ class Individual(TycheContext):
         return cls.solver
     
     @classmethod
-    def are_rules_satisfiable_future(cls, obj_type: type['Individual']) -> Future[bool]:
+    def are_rules_satisfiable_future(cls, obj_type: type['Individual']) -> Future[bool | None]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_future = cls.get_solver().are_exprs_satisfiable_future(exprs, vars)
         return solver_future
     
     @classmethod
-    def are_rules_satisfiable(cls, obj_type: type['Individual']) -> bool:
+    def are_rules_satisfiable(cls, obj_type: type['Individual']) -> bool | None:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_out = cls.get_solver().are_exprs_satisfiable(exprs, vars)
         return solver_out
     
     @classmethod
-    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[dict[str, SympyExpr] | None]:
+    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_future = cls.get_solver().example_exprs_solution_future(exprs, vars)
         return solver_future
     
     @classmethod
-    def get_consistent_example(cls, obj_type: type['Individual']) -> dict[str, SympyExpr] | None:
+    def get_consistent_example(cls, obj_type: type['Individual']) -> tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_out = cls.get_solver().example_exprs_solution(exprs, vars)
         return solver_out
