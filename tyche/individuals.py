@@ -824,6 +824,9 @@ class Individual(TycheContext):
             edges = rule.equivalence_class_tree_edges(variable_equivalence_class_map)
             for src, dst_dict in edges.items():
                 for dst, roles in dst_dict.items():
+                    if src == dst:
+                        raise TycheLanguageException("cycle detected") # ! TODO
+
                     if dst not in tree_edges[src]:
                         tree_edges[src][dst] = set()
                     tree_edges[src][dst].update(roles)
@@ -861,10 +864,10 @@ class Individual(TycheContext):
             for role_dict_stack in role_dict_stacks:
                 roles_and_n_terms: tuple[tuple[Role, int], ...]
                 for roles_and_n_terms in product(*role_dict_stack):
-                    # iterate over the crossproduct of the sets
+                    # iterate over the cartesian product of the sets
 
                     role_and_world: tuple[tuple[Role, int], ...]
-                    for role_and_world in product(*(((role, i) for i in range(1, n_terms + 1)) for role, n_terms in roles_and_n_terms)):
+                    for role_and_world in product(*(tuple((role, i) for i in range(1, n_terms + 1)) for role, n_terms in roles_and_n_terms)):
                         # iterate over the possible worlds for each role
 
                         root_eq_obj.update(eq_generator(role_and_world))

@@ -1465,12 +1465,17 @@ class FreeVariable(Atom):
     def direct_eval(self, context: TycheContext) -> float:
         raise TycheLanguageException(f"Instances of {type(self).__name__} cannot be evaluated")
     
-    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[tuple[Role, int], ...]], EquationsObj], int]:
+    def symbol_as_var(self):
         var = self.symbol
 
         # remove leading underscore
         if var[0] == "_":
             var = var[1:]
+
+        return var
+    
+    def get_equation_expression_generator(self, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, *, simplify: bool = False) -> tuple[Callable[[tuple[tuple[Role, int], ...]], EquationsObj], int]:
+        var = self.symbol_as_var()
         
         def generator(role_stack: tuple[tuple[Role, int], ...]) -> EquationsObj:
             var_with_modalities = Concept.symbol_with_roles(var, role_stack)
@@ -1975,10 +1980,10 @@ class Expectation(ADLNode):
             return v
         
         def generator(role_stack: tuple[tuple[Role, int], ...]) -> EquationsObj:
-            lhs_var_with_modalities = Concept.symbol_with_roles(lhs_var.symbol, role_stack)
+            lhs_var_with_modalities = Concept.symbol_with_roles(lhs_var.symbol_as_var(), role_stack)
             expr = lhs_var_with_modalities if simplify else f"({lhs_var_with_modalities})"
 
-            eq_0_var_with_modalities = Concept.symbol_with_roles(eq_0_var.symbol, role_stack)
+            eq_0_var_with_modalities = Concept.symbol_with_roles(eq_0_var.symbol_as_var(), role_stack)
 
             eval_objs = {i: eval_gen(role_stack + ((self.role, i),)) for i in range(1, n_terms + 1)}
             given_objs = {i: given_gen(role_stack + ((self.role, i),)) for i in range(1, n_terms + 1)}
@@ -1990,7 +1995,7 @@ class Expectation(ADLNode):
             # First equation is derived from how expectations are evaluated.
             # Second equation is derived from the paper.
 
-            world_var_terms = {i: Concept.symbol_with_world(world_prob_var.symbol, str(i)) for i in range(1, n_terms + 1)}
+            world_var_terms = {i: Concept.symbol_with_world(world_prob_var.symbol_as_var(), str(i)) for i in range(1, n_terms + 1)}
             eval_var_terms = {i: not_null(obj.expression) for i, obj in eval_objs.items()}
             given_var_terms = {i: not_null(obj.expression) for i, obj in given_objs.items()}
             
