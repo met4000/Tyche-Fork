@@ -835,32 +835,39 @@ class Individual(TycheContext):
         # * could be made more efficient by directly constructing the equations during this step, rather than making an intermediate construction
         # * could find overlap between starting at different roots and reuse search
 
-        rule_worlds: dict[SimpleRuleValue, set[tuple[frozenset[Role], ...]]] = {}
+        rule_worlds: dict[SimpleRuleValue, set[tuple[frozenset[tuple[Role, int]], ...]]] = {}
         
         root_nodes: set[int] = {i for i in range(len(tree_nodes)) if i not in has_back_edges}
-        search_stack: deque[tuple[int, tuple[frozenset[Role], ...]]] = deque((node, ()) for node in root_nodes)
+        search_stack: deque[tuple[int, tuple[frozenset[tuple[Role, int]], ...]]] = deque((node, ()) for node in root_nodes)
         while search_stack:
-            node, role_stack = search_stack.pop()
+            node, role_dict_stack = search_stack.pop()
 
             _, class_rules = tree_nodes[node]
             for rule in class_rules:
                 if rule not in rule_worlds:
                     rule_worlds[rule] = {()}
-                rule_worlds[rule].add(role_stack)
+                rule_worlds[rule].add(role_dict_stack)
 
             for child_node, roles in tree_edges[node].items():
-                search_stack.append((child_node, role_stack + (frozenset(roles), )))
+                n_terms = len(tree_nodes[child_node][0]) + 1
+                search_stack.append((child_node, role_dict_stack + (frozenset((role, n_terms) for role in roles),)))
         
         # make the list of equations from the rule worlds
         # TODO test
 
         root_eq_obj = EquationsObj(None, {}, set()) # .expr is unused
-        for rule, role_stacks in rule_worlds.items():
+        for rule, role_dict_stacks in rule_worlds.items():
             eq_generator, free_variable_index = rule.get_equation_generator(variable_equivalence_class_size, free_variable_index, simplify=simplify)
-            for role_stack in role_stacks:
-                for roles in product(*role_stack): # iterate over the crossproduct of the sets
-                    # ! needs to do e.g. (a_1,b_1,c_1), (a_1,b_1,c_2), rather than (a,b,c)_1, (a,b,c)_2
-                    root_eq_obj.update(eq_generator(roles))
+            for role_dict_stack in role_dict_stacks:
+                roles_and_n_terms: tuple[tuple[Role, int], ...]
+                for roles_and_n_terms in product(*role_dict_stack):
+                    # iterate over the crossproduct of the sets
+
+                    role_and_world: tuple[tuple[Role, int], ...]
+                    for role_and_world in product(*(((role, i) for i in range(1, n_terms + 1)) for role, n_terms in roles_and_n_terms)):
+                        # iterate over the possible worlds for each role
+
+                        root_eq_obj.update(eq_generator(role_and_world))
 
         var_equations: set[str] = set()
         for var, bounds in root_eq_obj.variables.items():
