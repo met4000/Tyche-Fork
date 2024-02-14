@@ -857,10 +857,22 @@ class Individual(TycheContext):
         
         # make the list of equations from the rule worlds
         # TODO test
+        
+        solver_var_wrapper: Callable[[str], str]
+        try:
+            solver = cls.get_solver()
+            solver_var_wrapper = solver.wrap_variable
+        except TycheIndividualsException:
+            solver_var_wrapper = lambda var: var
 
         root_eq_obj = EquationsObj(None, {}, set()) # .expr is unused
         for rule, role_dict_stacks in rule_worlds.items():
-            eq_generator, free_variable_index = rule.get_equation_generator(variable_equivalence_class_size, free_variable_index, simplify=simplify)
+            eq_generator, free_variable_index = rule.get_equation_generator(
+                equivalence_class_size=variable_equivalence_class_size,
+                free_variable_index=free_variable_index,
+                var_wrapper=solver_var_wrapper,
+                simplify=simplify
+            )
             for role_dict_stack in role_dict_stacks:
                 roles_and_n_terms: tuple[tuple[Role, int], ...]
                 for roles_and_n_terms in product(*role_dict_stack):
