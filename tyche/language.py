@@ -2062,7 +2062,7 @@ class Expectation(ADLNode):
 
             # world vars are a distribution; the sum must be 1
             world_var_sum = " + ".join(wrap(var) for var in world_var_terms.values())
-            world_var_sum_equation = f"{world_var_sum} = 1"
+            world_var_sum_equation = f"{world_var_sum} == 1"
 
             eq_obj.equations.update((equation1, equation2, world_var_sum_equation))
 
