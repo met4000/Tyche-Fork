@@ -10,7 +10,7 @@ from collections import deque
 from concurrent.futures import Future
 from itertools import product
 from math import isnan
-from typing import Literal, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Any, Literal, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
@@ -76,11 +76,11 @@ class TycheAccessorStore(Generic[AccessedValueType]):
                 self.type_name, symbol
             ))
 
-    def get(self, obj: any, symbol: str) -> AccessedValueType:
+    def get(self, obj: Any, symbol: str) -> AccessedValueType:
         """ Accesses the given symbol from the given object. """
         return self.get_reference(symbol).get(obj)
 
-    def set(self, obj: any, symbol: str, value: AccessedValueType):
+    def set(self, obj: Any, symbol: str, value: AccessedValueType):
         """ Modifies the given symbol in the given object. """
         return self.get_reference(symbol).set(obj, value)
 
@@ -149,8 +149,8 @@ class ConceptFunctionSymbolReference(FunctionSymbolReference):
     """ Represents a reference to a concept, with additional information about the concept attached. """
     def __init__(
             self, symbol: str,
-            fget: Callable[[any], TycheConceptValue],
-            fset: Optional[Callable[[any, TycheConceptValue], None]] = None,
+            fget: Callable[[Any], TycheConceptValue],
+            fset: Optional[Callable[[Any, TycheConceptValue], None]] = None,
             learning_strat: Optional['ConceptLearningStrategy'] = None
     ):
         super().__init__(symbol, fget, fset)
@@ -161,8 +161,8 @@ class RoleFunctionSymbolReference(FunctionSymbolReference):
     """ Represents a reference to a concept, with additional information about the concept attached. """
     def __init__(
             self, symbol: str,
-            fget: Callable[[any], TycheRoleValue],
-            fset: Optional[Callable[[any, TycheRoleValue], None]] = None,
+            fget: Callable[[Any], TycheRoleValue],
+            fset: Optional[Callable[[Any, TycheRoleValue], None]] = None,
             learning_strat: Optional['RoleLearningStrategy'] = None
     ):
         super().__init__(symbol, fget, fset)
@@ -229,7 +229,7 @@ class IndividualPropertyDecorator(Generic[AccessedValueType, LearningStrategyTyp
         return FunctionSymbolReference(
             self.symbol,
             cast(Callable[[object], AccessedValueType], self.fget),
-            self.fset
+            cast(Callable[[object, AccessedValueType]], self.fset)
         )
 
     def __set_name__(self, owner: type, name: str):
@@ -252,7 +252,7 @@ class TycheConceptDecorator(IndividualPropertyDecorator[TycheConceptValue, 'Conc
     Marks that a method provides the value of a concept for use in Tyche formulas.
     The name of the function is used as the name of the concept in formulas.
     """
-    field_type_hint: Final[type] = TycheConceptField
+    field_type_hint = TycheConceptField
 
     def __init__(
             self: SelfType_IndividualPropertyDecorator,
@@ -957,7 +957,7 @@ class Individual(TycheContext):
         return TycheRuleDecorator.get(obj_type).all_symbols
 
     @classmethod
-    def coerce_concept_value(cls: type, value: any) -> float:
+    def coerce_concept_value(cls: type, value: Any) -> float:
         """
         Coerces concept values to a float value in the range [0, 1],
         and raises errors if this is not possible.
@@ -995,7 +995,7 @@ class Individual(TycheContext):
         return coerced_ref.bake(self)
 
     @classmethod
-    def coerce_role_value(cls: type, value: any) -> RoleDist:
+    def coerce_role_value(cls: type, value: Any) -> RoleDist:
         """
         Coerces role values to only allow WeightedRoleDistribution.
         In the future, this should accept other types of role distributions.
@@ -1018,7 +1018,7 @@ class Individual(TycheContext):
         return coerced_ref.bake(self)
 
     @classmethod
-    def coerce_rule_value(cls: type, value: any) -> RuleValue:
+    def coerce_rule_value(cls: type, value: Any) -> RuleValue:
         if isinstance(value, RuleValue):
             return value
 

@@ -5,7 +5,7 @@ logic (ADL) sentences, and the maths for their evaluation.
 from __future__ import annotations
 from dataclasses import dataclass
 from math import isnan
-from typing import Final, cast, Optional, Union, NewType, TypeVar, Iterable, Callable
+from typing import Final, Sequence, cast, Optional, Union, NewType, TypeVar, Iterable, Callable
 
 import numpy as np
 
@@ -26,9 +26,9 @@ class TycheLanguageException(Exception):
         self.message = "TycheLanguageException: " + message
 
 
-RoleDistributionEntries: type = Union[
+RoleDistributionEntries = Union[
     None,
-    list[Union['TycheContext', tuple['TycheContext', float]]],
+    Sequence[Union['TycheContext', tuple[Optional['TycheContext'], float]]],
     dict['TycheContext', float]
 ]
 
@@ -659,9 +659,8 @@ def _format_dict(
     Formats a dictionary into a string, allowing custom key and value
     string formatting, indentation, and prefix/suffix modification.
     """
-    if isinstance(dict_value, dict):
-        dict_value = dict_value.items()
-    key_values = [f"{key_format_fn(key)}: {val_format_fn(val)}" for key, val in dict_value]
+    dict_values = dict(dict_value).items()
+    key_values = [f"{key_format_fn(key)}: {val_format_fn(val)}" for key, val in dict_values]
 
     if indent_lvl > 0:
         indentation = indent_str * indent_lvl
@@ -947,9 +946,9 @@ class NoLikelierThan(RuleValue):
 # This is used to allow passing names (e.g. "x", "y", etc...) directly
 # to functions that require a concept or role. These names will then
 # automatically be converted to an Atom or Role object.
-CompatibleWithADLNode: type = NewType("CompatibleWithADLNode", Union['ADLNode', str, float]) # type: ignore
-CompatibleWithRole: type = NewType("CompatibleWithRole", Union['Role', str]) # type: ignore
-CompatibleWithRule: type = NewType("CompatibleWithRule", Union['Rule', str]) # type: ignore
+CompatibleWithADLNode = Union['ADLNode', str, float]
+CompatibleWithRole = Union['Role', str]
+CompatibleWithRule = Union['Rule', str]
 
 
 class TycheContext:
@@ -1320,7 +1319,7 @@ class Atom(ADLNode):
         raise IndexError(f"{type(self).__name__}s have no child nodes")
 
     @staticmethod
-    def check_symbol(symbol: str, *, symbol_name="symbol", symbol_type_name: str = "Atom", context: str = None):
+    def check_symbol(symbol: str, *, symbol_name="symbol", symbol_type_name: str = "Atom", context: Optional[str] = None):
         """
         Checks a string contains only alphanumeric characters or underscore.
         Raises an error if the symbol is an invalid atom symbol.
@@ -1377,9 +1376,13 @@ class Atom(ADLNode):
         raise TycheLanguageException("not yet implemented")
     
     def as_simple(self, *, free_variable_index: int) -> tuple[ADLVariable, frozenset[SimpleRuleValue], int]:
+        if not isinstance(self, ADLVariable):
+            raise TycheLanguageException(f"`as_simple` can only be called on `ADLVariable`s; was called from {type(self).__name__}")
         return self, frozenset(), free_variable_index
     
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+        if not isinstance(self, ADLVariable):
+            raise TycheLanguageException(f"`variable_equivalence_classes` can only be called on `ADLVariable`s; was called from {type(self).__name__}")
         return frozenset([frozenset([self])]), frozenset()
     
     def get_equation_expression_generator(self, *, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, var_wrapper: Callable[[str], str],
@@ -1737,6 +1740,11 @@ class Conditional(ADLNode):
         return simple_expr, rules, free_variable_index
     
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+        if not isinstance(self.condition, ADLVariable) or not isinstance(self.if_yes, ADLVariable) or not isinstance(self.if_no, ADLVariable):
+            raise TycheLanguageException(
+                f"`variable_equivalence_classes` can only be called on simple `ADLNode`s; terms are {type(self.condition).__name__},"
+                f"{type(self.if_yes).__name__}, and {type(self.if_no).__name__}"
+            )
         return frozenset([frozenset([self.condition, self.if_yes, self.if_no])]), frozenset()
     
     def get_equation_expression_generator(self, *, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, var_wrapper: Callable[[str], str],
@@ -1810,7 +1818,7 @@ class ConditionalWithoutElse(Conditional):
     def __init__(self, condition: CompatibleWithADLNode, if_yes: CompatibleWithADLNode):
         super().__init__(condition, if_yes, ALWAYS)
 
-    def otherwise(self, if_no: ADLNode) -> Conditional:
+    def otherwise(self, if_no: CompatibleWithADLNode) -> Conditional:
         return Conditional(self.condition, self.if_yes, if_no)
 
 
@@ -1836,15 +1844,16 @@ class Given(ADLNode):
         returned. If the given is not provided, then ALWAYS will be returned for the given.
         Returns a tuple of (node, given).
         """
-        given: Optional[ADLNode] = ADLNode.cast(given) if given is not None else None
-        while isinstance(node, Given):
-            node_as_given = cast(Given, node)
-            node = node_as_given.node
-            given = node_as_given.given if given is None else given & node_as_given.given
+        cast_node: ADLNode = ADLNode.cast(node)
+        cast_given: Optional[ADLNode] = ADLNode.cast(given) if given is not None else None
+        while isinstance(cast_node, Given):
+            node_as_given = cast(Given, cast_node)
+            cast_node = node_as_given.node
+            cast_given = node_as_given.given if cast_given is None else cast_given & node_as_given.given
 
-        if given is None:
-            given = ALWAYS
-        return node, given
+        if cast_given is None:
+            cast_given = ALWAYS
+        return cast_node, cast_given
 
     def get_child_nodes_in_eval_context(self) -> list[ADLNode]:
         return []
@@ -1985,9 +1994,19 @@ class Expectation(ADLNode):
         return simple_expr, rules, free_variable_index
     
     def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+        if not isinstance(self.eval_node, ADLVariable) or not isinstance(self.given_node, ADLVariable):
+            raise TycheLanguageException(
+                f"`variable_equivalence_classes` can only be called on simple `ADLNode`s; terms are "
+                f"{type(self.eval_node).__name__} and {type(self.given_node).__name__}"
+            )
         return frozenset(), frozenset([frozenset([self.eval_node, self.given_node])])
     
     def modality_variables(self) -> dict[Role, frozenset[ADLVariable]]:
+        if not isinstance(self.eval_node, ADLVariable) or not isinstance(self.given_node, ADLVariable):
+            raise TycheLanguageException(
+                f"`modality_variables` can only be called on simple `ADLNode`s; terms are "
+                f"{type(self.eval_node).__name__} and {type(self.given_node).__name__}"
+            )
         return {self.role: frozenset([self.eval_node, self.given_node])}
     
     def get_equation_expression_generator(self, *, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, var_wrapper: Callable[[str], str],
@@ -2145,7 +2164,7 @@ class LeastFixedPoint(ADLNode):
     def copy_with_new_child_node_from_eval_context(self, index: int, node: ADLNode):
         args = self.get_child_nodes_in_eval_context()
         args[index] = node
-        return Conditional(self.variable, *args)
+        return LeastFixedPoint(self.variable, *args) # ? used to be `Conditional`
 
     def __str__(self):
         """
