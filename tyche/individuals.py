@@ -180,7 +180,7 @@ class IndividualPropertyDecorator(Generic[AccessedValueType, LearningStrategyTyp
     and to provide additional metadata or learning functions.
     """
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             type_name: str,
             fget: Callable[['Individual'], AccessedValueType], *,
             symbol: Optional[str] = None):
@@ -255,7 +255,7 @@ class TycheConceptDecorator(IndividualPropertyDecorator[TycheConceptValue, 'Conc
     field_type_hint: Final[type] = TycheConceptField # type: ignore
 
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             fn: Callable[[], TycheConceptValue],
             *, symbol: Optional[str] = None):
 
@@ -281,7 +281,7 @@ class TycheRoleDecorator(IndividualPropertyDecorator[TycheRoleValue, 'RoleLearni
     field_type_hint: Final[type] = TycheRoleField # type: ignore
 
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             fn: Callable[[], TycheRoleValue],
             *, symbol: Optional[str] = None):
 
@@ -306,7 +306,7 @@ class TycheRuleDecorator(IndividualPropertyDecorator[TycheRuleValue, None]): # t
     field_type_hint: Final[type] = TycheRuleField # type: ignore
 
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             fn: Callable[[], TycheRuleValue],
             *, symbol: Optional[str] = None):
 
@@ -333,7 +333,7 @@ def concept(
 
 def role(
         *, symbol: Optional[str] = None
-) -> Callable[[Callable[[], TycheRoleValue]], TycheRoleDecorator]:
+) -> Callable[[Callable[[], TycheRoleValue]], TycheRoleDecorator]: # type: ignore
     """
     Registers a method as supplying the value of a role for the evaluation of Tyche expressions.
     """
@@ -348,10 +348,10 @@ SelfType_LearningStrategy = TypeVar("SelfType_LearningStrategy", bound="Learning
 
 class LearningStrategy:
     """ Applies changes to individuals to update them based upon observations. """
-    def __init__(self: SelfType_LearningStrategy):
+    def __init__(self: SelfType_LearningStrategy): # type: ignore
         pass
 
-    def init_for_new_usage(self) -> SelfType_LearningStrategy:
+    def init_for_new_usage(self) -> SelfType_LearningStrategy: # type: ignore
         """
         If a learning strategy requires per-reference per-individual state, then this can
         clone the learning strategy for each new individual and reference. Otherwise, the
@@ -366,7 +366,7 @@ class ConceptLearningStrategy(LearningStrategy):
     Applies changes to individuals to update them based upon observations of concepts.
     """
     def apply(
-            self: SelfType_LearningStrategy,
+            self: SelfType_LearningStrategy, # type: ignore
             individual: TycheContext,
             concept_ref: ConceptFunctionSymbolReference,
             observation: ADLNode,
@@ -383,7 +383,7 @@ class RoleLearningStrategy(LearningStrategy):
     Applies changes to individuals to update them based upon observations over roles.
     """
     def apply(
-            self: SelfType_LearningStrategy,
+            self: SelfType_LearningStrategy, # type: ignore
             individual: TycheContext,
             role_ref: RoleFunctionSymbolReference,
             observation: ADLNode,
@@ -476,7 +476,7 @@ class StatisticalConceptLearningStrategy(ConceptLearningStrategy):
         self.running_learning_rate_sum: float = 0.0
         self.running_likelihood_sum: float = 0.0
 
-    def init_for_new_usage(self) -> SelfType_LearningStrategy:
+    def init_for_new_usage(self) -> SelfType_LearningStrategy: # type: ignore
         """
         This is required so that the state of each reference that uses an instance
         of this learning strategy is kept separate.
@@ -575,7 +575,7 @@ class StatisticalRoleLearningStrategy(RoleLearningStrategy):
         self.running_learning_rate_sums: dict[Optional[TycheContext], float] = {}
         self.running_likelihood_sums: dict[Optional[TycheContext], float] = {}
 
-    def init_for_new_usage(self) -> SelfType_LearningStrategy:
+    def init_for_new_usage(self) -> SelfType_LearningStrategy: # type: ignore
         """
         This is required so that the state of each reference that uses an instance
         of this learning strategy is kept separate.
