@@ -6,22 +6,23 @@ can be used as contexts to evaluate aleatoric description logic (ADL)
 sentences. This module also contains many learning strategies that may
 be used to update your belief models based upon ADL observations.
 """
+from collections import deque
 from concurrent.futures import Future
+from itertools import product
 from math import isnan
-from numbers import Number
-from typing import Dict, List, Set, Tuple, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Literal, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
 
-from tyche.language import CompatibleWithRule, ExclusiveRoleDist, Rule, RuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
+from tyche.language import ADLVariable, CompatibleWithRule, EquationsObj, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
-    ReferenceBackedRole, RoleDist
+    ReferenceBackedRole, RoleDist, VariableBounds
 
 from tyche.probability import uncertain_bayes_rule
 from tyche.references import SymbolReference, FieldSymbolReference, GuardedSymbolReference, FunctionSymbolReference, \
     BakedSymbolReference
-from tyche.solvers import TycheEquationSolver
+from tyche.solvers import Equations, TycheEquationSolver
 
 
 TycheConceptValue = TypeVar("TycheConceptValue", float, int, bool)
@@ -738,13 +739,13 @@ class Individual(TycheContext):
         return self.eval_rule(rule).direct_eval(self, epsilon=epsilon)
     
     # ? should probably rename to 'is_consistent' or something
-    def check_rules(self, *, epsilon: Optional[float | Dict[CompatibleWithRule, float | None]] = None) -> bool:
+    def check_rules(self, *, epsilon: Optional[float | dict[CompatibleWithRule, float | None]] = None) -> bool:
         """
         TODO description
         Runs `check_rule` on every rule.
         """
         def get_epsilon(rule: CompatibleWithRule) -> float:
-            if isinstance(epsilon, Dict):
+            if isinstance(epsilon, dict):
                 return epsilon.get(rule)
             return epsilon
         
@@ -763,25 +764,137 @@ class Individual(TycheContext):
         return obj_type.coerce_rule_value(value)
     
     @classmethod
-    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False) -> Tuple[List[str], List[str]]:
+    def get_satisfiability_equations(cls, obj_type: type['Individual'], *, simplify: bool = False, free_variable_index: int = 1) -> Equations:
         """
         TODO documentation
+
+        ! Assumes acyclic.
         """
-        eqs: List[str] = []
-        vars: Set[str] = set()
+
+        # construct simple rules from rules
+
+        simple_rules: set[SimpleRuleValue] = set()
 
         for rule_symbol in cls.get_rule_names(obj_type):
             rule = cls.get_class_rule(obj_type, rule_symbol)
-            rule_eq, rule_vars = rule.as_equation(simplify = simplify)
-            eqs.append(rule_eq)
-            vars.update(rule_vars)
+            new_simple_rules, free_variable_index = rule.as_simple_rules(free_variable_index=free_variable_index)
+            simple_rules.update(new_simple_rules)
+
+        # construct modality tree(s) on the equivalence classes
+        # ! assumes acyclic
         
-        var_eqs = []
-        for var in vars:
+        # equivalence classes for the variables (along with the respective rules for that equivalence class)
+        equivalence_classes: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
+
+        for rule in simple_rules:
+            rule_eq_classes = rule.variable_equivalence_classes()
+            for eq_class, class_rules in rule_eq_classes.items():
+                # find all equivalence classes that overlap with
+                # this one, and combine them
+
+                matches: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
+                for existing_eq_class, existing_class_rules in equivalence_classes.items():
+                    for var in eq_class:
+                        if var in existing_eq_class:
+                            # => intersection is non-empty
+                            matches[existing_eq_class] = existing_class_rules
+                            break
+                for k, _ in matches.items():
+                    equivalence_classes.pop(k)
+
+                matches_vars = iter(vars for vars, _ in matches.items())
+                matches_rules = iter(rules for _, rules in matches.items())
+
+                combined_eq_class_vars = frozenset.union(*matches_vars, eq_class)
+                combined_eq_class_rules = set.union(*matches_rules, class_rules)
+
+                equivalence_classes[combined_eq_class_vars] = combined_eq_class_rules
+
+        tree_nodes = [*equivalence_classes.items()]
+
+        variable_equivalence_class_map: dict[ADLVariable, int] = {}
+        for i in range(len(tree_nodes)):
+            eq_class, _ = tree_nodes[i]
+            for var in eq_class:
+                variable_equivalence_class_map[var] = i
+        
+        tree_edges: dict[int, dict[int, set[Role]]] = {i: {} for i in range(len(tree_nodes))}
+        has_back_edges: set[int] = set()
+        for rule in simple_rules:
+            edges = rule.equivalence_class_tree_edges(variable_equivalence_class_map)
+            for src, dst_dict in edges.items():
+                for dst, roles in dst_dict.items():
+                    if src == dst:
+                        raise TycheLanguageException("cycle detected") # ! TODO
+
+                    if dst not in tree_edges[src]:
+                        tree_edges[src][dst] = set()
+                    tree_edges[src][dst].update(roles)
+                    has_back_edges.add(dst)
+        
+        variable_equivalence_class_size: dict[ADLVariable, int] = {var: len(tree_nodes[i][0]) for var, i in variable_equivalence_class_map.items()}
+        
+        # construct the list of modalities for each rule by iterating over the trees; finding the roots of the tree and traversing (DFS) starting at each root
+        # * could be made more efficient by directly constructing the equations during this step, rather than making an intermediate construction
+        # * could find overlap between starting at different roots and reuse search
+
+        rule_worlds: dict[SimpleRuleValue, set[tuple[frozenset[tuple[Role, int]], ...]]] = {}
+        
+        root_nodes: set[int] = {i for i in range(len(tree_nodes)) if i not in has_back_edges}
+        search_stack: deque[tuple[int, tuple[frozenset[tuple[Role, int]], ...]]] = deque((node, ()) for node in root_nodes)
+        while search_stack:
+            node, role_dict_stack = search_stack.pop()
+
+            _, class_rules = tree_nodes[node]
+            for rule in class_rules:
+                if rule not in rule_worlds:
+                    rule_worlds[rule] = {()}
+                rule_worlds[rule].add(role_dict_stack)
+
+            for child_node, roles in tree_edges[node].items():
+                n_terms = len(tree_nodes[child_node][0]) + 1
+                search_stack.append((child_node, role_dict_stack + (frozenset((role, n_terms) for role in roles),)))
+        
+        # make the list of equations from the rule worlds
+        # TODO test
+        
+        solver_var_wrapper: Callable[[str], str]
+        try:
+            solver = cls.get_solver()
+            solver_var_wrapper = solver.wrap_variable
+        except TycheIndividualsException:
+            solver_var_wrapper = lambda var: var
+
+        root_eq_obj = EquationsObj(None, {}, set()) # .expr is unused
+        for rule, role_dict_stacks in rule_worlds.items():
+            eq_generator, free_variable_index = rule.get_equation_generator(
+                equivalence_class_size=variable_equivalence_class_size,
+                free_variable_index=free_variable_index,
+                var_wrapper=solver_var_wrapper,
+                simplify=simplify
+            )
+            for role_dict_stack in role_dict_stacks:
+                roles_and_n_terms: tuple[tuple[Role, int], ...]
+                for roles_and_n_terms in product(*role_dict_stack):
+                    # iterate over the cartesian product of the sets
+
+                    role_and_world: tuple[tuple[Role, int], ...]
+                    for role_and_world in product(*(tuple((role, i) for i in range(1, n_terms + 1)) for role, n_terms in roles_and_n_terms)):
+                        # iterate over the possible worlds for each role
+
+                        root_eq_obj.update(eq_generator(role_and_world))
+
+        var_equations: set[str] = set()
+        for var, bounds in root_eq_obj.variables.items():
             var_str = var if simplify else f"({var})"
-            var_eqs.append(f"0 <= {var_str} <= 1")
-        
-        return ([*eqs, *var_eqs], vars)
+            
+            if bounds.lower is not None:
+                var_equations.add(f"{bounds.lower} <= {var_str}")
+            
+            if bounds.upper is not None:
+                var_equations.add(f"{var_str} <= {bounds.upper}")
+
+        return Equations(equations=list(set.union(root_eq_obj.equations, var_equations)), variables=list(root_eq_obj.variables))
     
     @classmethod
     def set_solver(cls, solver: TycheEquationSolver) -> WrappedIndividualSolver:
@@ -797,25 +910,25 @@ class Individual(TycheContext):
         return cls.solver
     
     @classmethod
-    def are_rules_satisfiable_future(cls, obj_type: type['Individual']) -> Future[bool]:
+    def are_rules_satisfiable_future(cls, obj_type: type['Individual']) -> Future[bool | None]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_future = cls.get_solver().are_exprs_satisfiable_future(exprs, vars)
         return solver_future
     
     @classmethod
-    def are_rules_satisfiable(cls, obj_type: type['Individual']) -> bool:
+    def are_rules_satisfiable(cls, obj_type: type['Individual']) -> bool | None:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_out = cls.get_solver().are_exprs_satisfiable(exprs, vars)
         return solver_out
     
     @classmethod
-    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[Dict[str, SympyExpr] | None]:
+    def get_consistent_example_future(cls, obj_type: type['Individual']) -> Future[tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_future = cls.get_solver().example_exprs_solution_future(exprs, vars)
         return solver_future
     
     @classmethod
-    def get_consistent_example(cls, obj_type: type['Individual']) -> Dict[str, SympyExpr] | None:
+    def get_consistent_example(cls, obj_type: type['Individual']) -> tuple[Literal[False] | None, None] | tuple[Literal[True], dict[str, SympyExpr]]:
         exprs, vars = cls.get_satisfiability_equations(obj_type, simplify=False)
         solver_out = cls.get_solver().example_exprs_solution(exprs, vars)
         return solver_out
