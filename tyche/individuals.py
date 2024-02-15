@@ -10,7 +10,7 @@ from collections import deque
 from concurrent.futures import Future
 from itertools import product
 from math import isnan
-from typing import Literal, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
+from typing import Any, Literal, TypeVar, Callable, get_type_hints, Final, Type, cast, Generic, Optional
 
 import numpy as np
 from sympy import Expr as SympyExpr
@@ -76,11 +76,11 @@ class TycheAccessorStore(Generic[AccessedValueType]):
                 self.type_name, symbol
             ))
 
-    def get(self, obj: any, symbol: str) -> AccessedValueType:
+    def get(self, obj: Any, symbol: str) -> AccessedValueType:
         """ Accesses the given symbol from the given object. """
         return self.get_reference(symbol).get(obj)
 
-    def set(self, obj: any, symbol: str, value: AccessedValueType):
+    def set(self, obj: Any, symbol: str, value: AccessedValueType):
         """ Modifies the given symbol in the given object. """
         return self.get_reference(symbol).set(obj, value)
 
@@ -149,8 +149,8 @@ class ConceptFunctionSymbolReference(FunctionSymbolReference):
     """ Represents a reference to a concept, with additional information about the concept attached. """
     def __init__(
             self, symbol: str,
-            fget: Callable[[any], TycheConceptValue],
-            fset: Optional[Callable[[any, TycheConceptValue], None]] = None,
+            fget: Callable[[Any], TycheConceptValue],
+            fset: Optional[Callable[[Any, TycheConceptValue], None]] = None,
             learning_strat: Optional['ConceptLearningStrategy'] = None
     ):
         super().__init__(symbol, fget, fset)
@@ -161,8 +161,8 @@ class RoleFunctionSymbolReference(FunctionSymbolReference):
     """ Represents a reference to a concept, with additional information about the concept attached. """
     def __init__(
             self, symbol: str,
-            fget: Callable[[any], TycheRoleValue],
-            fset: Optional[Callable[[any, TycheRoleValue], None]] = None,
+            fget: Callable[[Any], TycheRoleValue],
+            fset: Optional[Callable[[Any, TycheRoleValue], None]] = None,
             learning_strat: Optional['RoleLearningStrategy'] = None
     ):
         super().__init__(symbol, fget, fset)
@@ -180,7 +180,7 @@ class IndividualPropertyDecorator(Generic[AccessedValueType, LearningStrategyTyp
     and to provide additional metadata or learning functions.
     """
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             type_name: str,
             fget: Callable[['Individual'], AccessedValueType], *,
             symbol: Optional[str] = None):
@@ -229,7 +229,7 @@ class IndividualPropertyDecorator(Generic[AccessedValueType, LearningStrategyTyp
         return FunctionSymbolReference(
             self.symbol,
             cast(Callable[[object], AccessedValueType], self.fget),
-            self.fset
+            cast(Callable[[object, AccessedValueType]], self.fset)
         )
 
     def __set_name__(self, owner: type, name: str):
@@ -252,14 +252,14 @@ class TycheConceptDecorator(IndividualPropertyDecorator[TycheConceptValue, 'Conc
     Marks that a method provides the value of a concept for use in Tyche formulas.
     The name of the function is used as the name of the concept in formulas.
     """
-    field_type_hint: Final[type] = TycheConceptField
+    field_type_hint: Final[type] = TycheConceptField # type: ignore
 
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             fn: Callable[[], TycheConceptValue],
             *, symbol: Optional[str] = None):
 
-        super().__init__("concept", fn, symbol=symbol)
+        super().__init__("concept", fn, symbol=symbol) # type: ignore
 
     def _create_symbol_reference(self) -> 'FunctionSymbolReference':
         return ConceptFunctionSymbolReference(
@@ -278,14 +278,14 @@ class TycheRoleDecorator(IndividualPropertyDecorator[TycheRoleValue, 'RoleLearni
     Marks that a method provides the value of a role for use in Tyche formulas.
     The name of the function is used as the name of the role in formulas.
     """
-    field_type_hint: Final[type] = TycheRoleField
+    field_type_hint: Final[type] = TycheRoleField # type: ignore
 
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             fn: Callable[[], TycheRoleValue],
             *, symbol: Optional[str] = None):
 
-        super().__init__("role", fn, symbol=symbol)
+        super().__init__("role", fn, symbol=symbol) # type: ignore
 
     def _create_symbol_reference(self) -> 'FunctionSymbolReference':
         return RoleFunctionSymbolReference(
@@ -298,19 +298,19 @@ class TycheRoleDecorator(IndividualPropertyDecorator[TycheRoleValue, 'RoleLearni
             obj_type, TycheRoleDecorator, TycheRoleDecorator.field_type_hint, "role"
         )
     
-class TycheRuleDecorator(IndividualPropertyDecorator[TycheRuleValue, None]):
+class TycheRuleDecorator(IndividualPropertyDecorator[TycheRuleValue, None]): # type: ignore
     """
     Not strictly used, but defined to make implementing fields easier,
     and in case method support is added later.
     """
-    field_type_hint: Final[type] = TycheRuleField
+    field_type_hint: Final[type] = TycheRuleField # type: ignore
 
     def __init__(
-            self: SelfType_IndividualPropertyDecorator,
+            self: SelfType_IndividualPropertyDecorator, # type: ignore
             fn: Callable[[], TycheRuleValue],
             *, symbol: Optional[str] = None):
 
-        super().__init__("rule", fn, symbol=symbol)
+        super().__init__("rule", fn, symbol=symbol) # type: ignore
 
     @staticmethod
     def get(obj_type: Type['Individual']) -> TycheAccessorStore:
@@ -328,12 +328,12 @@ def concept(
     def annotator(inner_fn: Callable[[], TycheConceptValue]):
         return TycheConceptDecorator(inner_fn, symbol=symbol)
 
-    return annotator
+    return annotator # type: ignore
 
 
 def role(
         *, symbol: Optional[str] = None
-) -> Callable[[Callable[[], TycheRoleValue]], TycheRoleDecorator]:
+) -> Callable[[Callable[[], TycheRoleValue]], TycheRoleDecorator]: # type: ignore
     """
     Registers a method as supplying the value of a role for the evaluation of Tyche expressions.
     """
@@ -348,17 +348,17 @@ SelfType_LearningStrategy = TypeVar("SelfType_LearningStrategy", bound="Learning
 
 class LearningStrategy:
     """ Applies changes to individuals to update them based upon observations. """
-    def __init__(self: SelfType_LearningStrategy):
+    def __init__(self: SelfType_LearningStrategy): # type: ignore
         pass
 
-    def init_for_new_usage(self) -> SelfType_LearningStrategy:
+    def init_for_new_usage(self) -> SelfType_LearningStrategy: # type: ignore
         """
         If a learning strategy requires per-reference per-individual state, then this can
         clone the learning strategy for each new individual and reference. Otherwise, the
         state of this learning strategy will be shared for every individual and reference
         that uses it (which is fine for stateless learning strategies).
         """
-        return self
+        return self # type: ignore
 
 
 class ConceptLearningStrategy(LearningStrategy):
@@ -366,7 +366,7 @@ class ConceptLearningStrategy(LearningStrategy):
     Applies changes to individuals to update them based upon observations of concepts.
     """
     def apply(
-            self: SelfType_LearningStrategy,
+            self: SelfType_LearningStrategy, # type: ignore
             individual: TycheContext,
             concept_ref: ConceptFunctionSymbolReference,
             observation: ADLNode,
@@ -383,7 +383,7 @@ class RoleLearningStrategy(LearningStrategy):
     Applies changes to individuals to update them based upon observations over roles.
     """
     def apply(
-            self: SelfType_LearningStrategy,
+            self: SelfType_LearningStrategy, # type: ignore
             individual: TycheContext,
             role_ref: RoleFunctionSymbolReference,
             observation: ADLNode,
@@ -414,7 +414,7 @@ class DirectConceptLearningStrategy(ConceptLearningStrategy):
         self.learning_rate = learning_rate
 
     def apply(
-            self: SelfType_LearningStrategy,
+            self,
             individual: TycheContext,
             concept_ref: ConceptFunctionSymbolReference,
             observation: ADLNode,
@@ -476,7 +476,7 @@ class StatisticalConceptLearningStrategy(ConceptLearningStrategy):
         self.running_learning_rate_sum: float = 0.0
         self.running_likelihood_sum: float = 0.0
 
-    def init_for_new_usage(self) -> SelfType_LearningStrategy:
+    def init_for_new_usage(self) -> SelfType_LearningStrategy: # type: ignore
         """
         This is required so that the state of each reference that uses an instance
         of this learning strategy is kept separate.
@@ -485,10 +485,10 @@ class StatisticalConceptLearningStrategy(ConceptLearningStrategy):
             self.initial_value_weight,
             decay_rate=self.decay_rate,
             decay_rate_for_decay_rate=self.decay_rate_for_decay_rate
-        )
+        ) # type: ignore
 
     def apply(
-            self: SelfType_LearningStrategy,
+            self,
             individual: TycheContext,
             concept_ref: ConceptFunctionSymbolReference,
             observation: ADLNode,
@@ -531,7 +531,7 @@ class BayesRuleLearningStrategy(RoleLearningStrategy):
         self.learning_rate = learning_rate
 
     def apply(
-            self: SelfType_LearningStrategy,
+            self,
             individual: TycheContext,
             role_ref: RoleFunctionSymbolReference,
             observation: ADLNode,
@@ -575,7 +575,7 @@ class StatisticalRoleLearningStrategy(RoleLearningStrategy):
         self.running_learning_rate_sums: dict[Optional[TycheContext], float] = {}
         self.running_likelihood_sums: dict[Optional[TycheContext], float] = {}
 
-    def init_for_new_usage(self) -> SelfType_LearningStrategy:
+    def init_for_new_usage(self) -> SelfType_LearningStrategy: # type: ignore
         """
         This is required so that the state of each reference that uses an instance
         of this learning strategy is kept separate.
@@ -584,10 +584,10 @@ class StatisticalRoleLearningStrategy(RoleLearningStrategy):
             self.initial_value_weight,
             decay_rate=self.decay_rate,
             decay_rate_for_decay_rate=self.decay_rate_for_decay_rate
-        )
+        ) # type: ignore
 
     def apply(
-            self: SelfType_LearningStrategy,
+            self,
             individual: TycheContext,
             role_ref: RoleFunctionSymbolReference,
             observation: ADLNode,
@@ -657,10 +657,16 @@ class WrappedIndividualSolver:
         self.cls = cls
     
     def __enter__(self) -> TycheEquationSolver:
+        if self.cls.solver is None:
+            raise TycheIndividualsException(f"solver not set for class {type(self.cls).__name__}")
+        
         return self.cls.solver.__enter__()
     
     def __exit__(self, type, value, traceback):
         solver = self.cls.solver
+        if solver is None:
+            return
+        
         self.cls.solver = None
         return solver.__exit__(type, value, traceback)
 
@@ -744,7 +750,7 @@ class Individual(TycheContext):
         TODO description
         Runs `check_rule` on every rule.
         """
-        def get_epsilon(rule: CompatibleWithRule) -> float:
+        def get_epsilon(rule: CompatibleWithRule) -> float | None:
             if isinstance(epsilon, dict):
                 return epsilon.get(rule)
             return epsilon
@@ -957,16 +963,17 @@ class Individual(TycheContext):
         return TycheRuleDecorator.get(obj_type).all_symbols
 
     @classmethod
-    def coerce_concept_value(cls: type, value: any) -> float:
+    def coerce_concept_value(cls: type, value: Any) -> float:
         """
         Coerces concept values to a float value in the range [0, 1],
         and raises errors if this is not possible.
         """
-        if np.isscalar(value):
+        if isinstance(value, (int, float)):
             if np.isnan(value):
                 raise TycheIndividualsException(
                     f"Error in {cls.__name__}: Concept values must not be nan (got {value})"
                 )
+
             if value < 0: # also handles -inf
                 raise TycheIndividualsException(
                     f"Error in {cls.__name__}: Concept values must be >= to 0, not {value}"
@@ -995,7 +1002,7 @@ class Individual(TycheContext):
         return coerced_ref.bake(self)
 
     @classmethod
-    def coerce_role_value(cls: type, value: any) -> RoleDist:
+    def coerce_role_value(cls: type, value: Any) -> RoleDist:
         """
         Coerces role values to only allow WeightedRoleDistribution.
         In the future, this should accept other types of role distributions.
@@ -1012,13 +1019,13 @@ class Individual(TycheContext):
         value = self.roles.get(self, symbol)
         return self.coerce_role_value(value)
 
-    def get_role_reference(self, symbol: str) -> SymbolReference[RoleDist]:
+    def get_role_reference(self, symbol: str) -> BakedSymbolReference[RoleDist]:
         ref = self.roles.get_reference(symbol)
         coerced_ref = GuardedSymbolReference(ref, self.coerce_role_value, self.coerce_role_value)
         return coerced_ref.bake(self)
 
     @classmethod
-    def coerce_rule_value(cls: type, value: any) -> RuleValue:
+    def coerce_rule_value(cls: type, value: Any) -> RuleValue:
         if isinstance(value, RuleValue):
             return value
 
@@ -1031,7 +1038,7 @@ class Individual(TycheContext):
         value = self.rules.get(self, symbol)
         return self.coerce_rule_value(value)
 
-    def get_rule_reference(self, symbol: str) -> SymbolReference[RuleValue]:
+    def get_rule_reference(self, symbol: str) -> BakedSymbolReference[RuleValue]:
         ref = self.rules.get_reference(symbol)
         coerced_ref = GuardedSymbolReference(ref, self.coerce_rule_value, self.coerce_rule_value)
         return coerced_ref.bake(self)
@@ -1238,7 +1245,7 @@ class IdentityIndividual(TycheContext):
         # Apply any learning strategy that is set for this IdentityIndividual.
         if self.learning_strat is not None:
             implicit_expectation = Expectation(self.id_role, node, given)
-            self.learning_strat.apply(self, self.id_role_ref, implicit_expectation, likelihood, learning_rate)
+            self.learning_strat.apply(self, self.id_role_ref, implicit_expectation, likelihood, learning_rate) # type: ignore
 
         # Propagate the observation!
         possible_matching_individuals = prev_id_value.reverse_expectation_learning_params(

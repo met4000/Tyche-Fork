@@ -50,7 +50,7 @@ class TycheEquationSolver:
     def __enter__(self) -> TycheEquationSolver:
         return self
     
-    def __exit__(self):
+    def __exit__(self, type, value, traceback):
         raise NotImplementedError("__exit__ is unimplemented for " + type(self).__name__)
     
 
