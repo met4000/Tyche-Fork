@@ -789,32 +789,35 @@ class Individual(TycheContext):
         # construct modality tree(s) on the equivalence classes
         # ! assumes acyclic
         
-        # equivalence classes for the variables (along with the respective rules for that equivalence class)
-        equivalence_classes: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
+        # equivalence classes for the variables, along with the actual variables (not including the unnecessary
+        # free variables added during equation generation) and respective rules for that equivalence class
+        equivalence_classes: dict[frozenset[ADLVariable], tuple[set[ADLVariable], set[SimpleRuleValue]]] = {}
 
         for rule in simple_rules:
             rule_eq_classes = rule.variable_equivalence_classes()
-            for eq_class, class_rules in rule_eq_classes.items():
+            for eq_class, (actual_eq_class, class_rules) in rule_eq_classes.items():
                 # find all equivalence classes that overlap with
                 # this one, and combine them
 
-                matches: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
-                for existing_eq_class, existing_class_rules in equivalence_classes.items():
+                matches: dict[frozenset[ADLVariable], tuple[set[ADLVariable], set[SimpleRuleValue]]] = {}
+                for existing_eq_class, (existing_actual_eq_class, existing_class_rules) in equivalence_classes.items():
                     for var in eq_class:
                         if var in existing_eq_class:
                             # => intersection is non-empty
-                            matches[existing_eq_class] = existing_class_rules
+                            matches[existing_eq_class] = (existing_actual_eq_class, existing_class_rules)
                             break
                 for k, _ in matches.items():
                     equivalence_classes.pop(k)
 
                 matches_vars = iter(vars for vars, _ in matches.items())
-                matches_rules = iter(rules for _, rules in matches.items())
+                matches_actual_vars = iter(vars for _, (vars, _) in matches.items())
+                matches_rules = iter(rules for _, (_, rules) in matches.items())
 
                 combined_eq_class_vars = frozenset.union(*matches_vars, eq_class)
+                combined_actual_eq_class_vars = set.union(*matches_actual_vars, actual_eq_class)
                 combined_eq_class_rules = set.union(*matches_rules, class_rules)
 
-                equivalence_classes[combined_eq_class_vars] = combined_eq_class_rules
+                equivalence_classes[combined_eq_class_vars] = (combined_actual_eq_class_vars, combined_eq_class_rules)
 
         tree_nodes = [*equivalence_classes.items()]
 
@@ -838,7 +841,7 @@ class Individual(TycheContext):
                     tree_edges[src][dst].update(roles)
                     has_back_edges.add(dst)
         
-        variable_equivalence_class_size: dict[ADLVariable, int] = {var: len(tree_nodes[i][0]) for var, i in variable_equivalence_class_map.items()}
+        variable_equivalence_class_size: dict[ADLVariable, int] = {var: len(tree_nodes[i][1][0]) for var, i in variable_equivalence_class_map.items()}
         
         # construct the list of modalities for each rule by iterating over the trees; finding the roots of the tree and traversing (DFS) starting at each root
         # * could be made more efficient by directly constructing the equations during this step, rather than making an intermediate construction
@@ -851,14 +854,14 @@ class Individual(TycheContext):
         while search_stack:
             node, role_dict_stack = search_stack.pop()
 
-            _, class_rules = tree_nodes[node]
+            _, (_, class_rules) = tree_nodes[node]
             for rule in class_rules:
                 if rule not in rule_worlds:
                     rule_worlds[rule] = {()}
                 rule_worlds[rule].add(role_dict_stack)
 
             for child_node, roles in tree_edges[node].items():
-                n_terms = len(tree_nodes[child_node][0]) + 1
+                n_terms = len(tree_nodes[child_node][1][0]) + 1
                 search_stack.append((child_node, role_dict_stack + (frozenset((role, n_terms) for role in roles),)))
         
         # make the list of equations from the rule worlds
