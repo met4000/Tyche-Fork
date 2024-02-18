@@ -10,7 +10,9 @@ try:
     from wolframclient.evaluation import WolframLanguageSession, WolframKernelEvaluationResult
     from wolframclient.language import wlexpr, WLInputExpression
     from wolframclient.language.expression import WLSymbol
-
+except ImportError:
+    pass
+else:
     import logging
     from sympy.parsing.mathematica import parse_mathematica
 
@@ -190,5 +192,3 @@ try:
                 return True, solution
 
             return self.exec_mathematica_query(solver_in, tuple, result_transformer=fn)
-except ImportError:
-    pass
