@@ -750,28 +750,29 @@ class SimpleRuleValue:
 
     Represents a simple (not nested) rule.
     Used in satisfiability equation generation.
-    
-    `expression` may be assumed to be simple.
+
+    `free_variable` should be a new free variable not required in the actual variable equivalence classes.
+    `expression` should be simple.
     Does not perform checks when constructed.
     """
 
-    variable: Final[ADLVariable]
+    free_variable: Final[FreeVariable]
     expression: Final[ADLNode]
 
-    def variable_equivalence_classes(self) -> dict[frozenset[ADLVariable], set[SimpleRuleValue]]:
-        normal_classes, modality_classes = self.expression.variable_equivalence_classes()
-        if len(normal_classes) > 0:
-            normal_classes = frozenset(normal_class.union({self.variable}) for normal_class in normal_classes)
+    def variable_equivalence_classes(self) -> dict[frozenset[ADLVariable], tuple[set[ADLVariable], set[SimpleRuleValue]]]:
+        normal_classes_dict, modality_classes_dict = self.expression.variable_equivalence_classes()
+        if len(normal_classes_dict) > 0:
+            normal_classes_dict = {normal_class.union({self.free_variable}): actual_normal_class for normal_class, actual_normal_class in normal_classes_dict.items()}
         else:
-            normal_classes = frozenset([frozenset([self.variable])])
+            normal_classes_dict = {frozenset[ADLVariable]([self.free_variable]): set[ADLVariable]()}
 
-        classes_dict: dict[frozenset[ADLVariable], set[SimpleRuleValue]] = {}
+        classes_dict: dict[frozenset[ADLVariable], tuple[set[ADLVariable], set[SimpleRuleValue]]] = {}
         
-        for eq_class in normal_classes:
-            classes_dict[eq_class] = {self}
+        for eq_class, actual_eq_class in normal_classes_dict.items():
+            classes_dict[eq_class] = (actual_eq_class, {self})
         
-        for eq_class in modality_classes:
-            classes_dict[eq_class] = set()
+        for eq_class, actual_eq_class in modality_classes_dict.items():
+            classes_dict[eq_class] = (actual_eq_class, set())
 
         return classes_dict
     
@@ -779,7 +780,7 @@ class SimpleRuleValue:
         """
         Returns src -> dst, and the roles that make those edges.
         """
-        lhs_class = var_map[self.variable]
+        lhs_class = var_map[self.free_variable]
 
         edges: dict[int, dict[int, set[Role]]] = {lhs_class: {}}
         role_vars = self.expression.modality_variables()
@@ -797,7 +798,7 @@ class SimpleRuleValue:
         TODO description
         Does not output variable range restriction equations.
         """
-        lhs_expr_gen, free_variable_index = self.variable.get_equation_expression_generator(
+        lhs_expr_gen, free_variable_index = self.free_variable.get_equation_expression_generator(
             equivalence_class_size=equivalence_class_size,
             free_variable_index=free_variable_index,
             var_wrapper=var_wrapper,
@@ -875,10 +876,12 @@ class RuleValue:
 
         rules = set().union(lhs_rules, rhs_rules)
 
-        if isinstance(lhs_expr, ADLVariable):
+        # ~_expr should only be a free variable if the variable isn't part of
+        # the equations; use it as the simple rule's free variable
+        if isinstance(lhs_expr, FreeVariable):
             rule = SimpleRuleValue(lhs_expr, rhs_expr)
             rules.add(rule)
-        elif isinstance(rhs_expr, ADLVariable):
+        elif isinstance(rhs_expr, FreeVariable):
             rule = SimpleRuleValue(rhs_expr, lhs_expr)
             rules.add(rule)
         else:
@@ -1151,22 +1154,27 @@ class ADLNode:
         """
         raise NotImplementedError("as_simple is unimplemented for " + type(self).__name__)
     
-    def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+    def variable_equivalence_classes(self) -> tuple[dict[frozenset[ADLVariable], set[ADLVariable]], dict[frozenset[ADLVariable], set[ADLVariable]]]:
         """
         TODO documentation
         
         Assumes the ADLNode is simple (not nested).
         Returns the equivalence classes of variables in the node.
         I.e. related variables, not counting modalities.
-        This is usually 1 class, including every variable in the node.
+        This is usually just 1 class, containing every variable in the node.
 
         The first set of classes are considered to include the variable in an assignment.
-        i.e. with C ≈ D, D should return ({D}, {}), and C ≈ D ? E : F, the conditional should return ({D, E, F}, {}).
-        Those refer respectively to equivalence classes {{C, D}}, and {{C, D, E, F}}.
+        i.e. with `C ≈ D`, D`` should return `({D}, {})`, and `C ≈ D ? E : F`, the conditional should return `({D, E, F}, {})`.
+        Those refer respectively to equivalence classes `{{C, D}}`, and `{{C, D, E, F}}`.
 
         The second set of classes are considered to not include the variable in the assignment.
-        i.e. with C ≈ [D](E | F), the expectation should return ({}, {E, F}).
-        That refers to the equivalence classes {{C}, {E, F}}.
+        i.e. with `C ≈ [D](E | F)`, the expectation should return `({}, {E, F})`.
+        That refers to the equivalence classes `{{C}, {E, F}}`.
+
+        The keys of the dictionaries should include all free variables, and the values only include
+        free variables necessary for the equations (a value should be a subset of its key); for e.g.
+        the equation `a = b` that actually got split into `a = freeVar` and `freeVar = b`,
+        the dictionary should be `{{a, b, freeVar}: {a, b}}`.
         """
         raise NotImplementedError("variable_equivalence_classes is unimplemented for " + type(self).__name__)
     
@@ -1380,10 +1388,10 @@ class Atom(ADLNode):
             raise TycheLanguageException(f"`as_simple` can only be called on `ADLVariable`s; was called from {type(self).__name__}")
         return self, frozenset(), free_variable_index
     
-    def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+    def variable_equivalence_classes(self) -> tuple[dict[frozenset[ADLVariable], set[ADLVariable]], dict[frozenset[ADLVariable], set[ADLVariable]]]:
         if not isinstance(self, ADLVariable):
             raise TycheLanguageException(f"`variable_equivalence_classes` can only be called on `ADLVariable`s; was called from {type(self).__name__}")
-        return frozenset([frozenset([self])]), frozenset()
+        return {frozenset([self]): {self}}, {}
     
     def get_equation_expression_generator(self, *, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, var_wrapper: Callable[[str], str],
                                           simplify: bool = False) -> tuple[Callable[[tuple[tuple[Role, int], ...]], EquationsObj], int]:
@@ -1447,8 +1455,8 @@ class Constant(Atom):
         rule = SimpleRuleValue(var, self)
         return var, frozenset([rule]), free_variable_index
     
-    def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
-        return frozenset(), frozenset()
+    def variable_equivalence_classes(self) -> tuple[dict[frozenset[ADLVariable], set[ADLVariable]], dict[frozenset[ADLVariable], set[ADLVariable]]]:
+        return {}, {}
 
     def get_equation_expression_generator(self, *, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, var_wrapper: Callable[[str], str],
                                           simplify: bool = False) -> tuple[Callable[[tuple[tuple[Role, int], ...]], EquationsObj], int]:
@@ -1739,13 +1747,14 @@ class Conditional(ADLNode):
         rules = frozenset.union(condition_var_rule, if_yes_var_rule, if_no_var_rule, condition_rules, if_yes_rules, if_no_rules)
         return simple_expr, rules, free_variable_index
     
-    def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+    def variable_equivalence_classes(self) -> tuple[dict[frozenset[ADLVariable], set[ADLVariable]], dict[frozenset[ADLVariable], set[ADLVariable]]]:
         if not isinstance(self.condition, ADLVariable) or not isinstance(self.if_yes, ADLVariable) or not isinstance(self.if_no, ADLVariable):
             raise TycheLanguageException(
                 f"`variable_equivalence_classes` can only be called on simple `ADLNode`s; terms are {type(self.condition).__name__},"
                 f"{type(self.if_yes).__name__}, and {type(self.if_no).__name__}"
             )
-        return frozenset([frozenset([self.condition, self.if_yes, self.if_no])]), frozenset()
+        # child nodes should only be free variables if they are not required in the equations; include only concepts in the actual equivalence class
+        return {frozenset([self.condition, self.if_yes, self.if_no]): {node for node in [self.condition, self.if_yes, self.if_no] if isinstance(node, Concept)}}, {}
     
     def get_equation_expression_generator(self, *, equivalence_class_size: dict[ADLVariable, int], free_variable_index: int, var_wrapper: Callable[[str], str],
                                           simplify: bool = False) -> tuple[Callable[[tuple[tuple[Role, int], ...]], EquationsObj], int]:
@@ -1993,13 +2002,14 @@ class Expectation(ADLNode):
         rules = frozenset.union(eval_var_rule, given_var_rule, eval_rules, given_rules)
         return simple_expr, rules, free_variable_index
     
-    def variable_equivalence_classes(self) -> tuple[frozenset[frozenset[ADLVariable]], frozenset[frozenset[ADLVariable]]]:
+    def variable_equivalence_classes(self) -> tuple[dict[frozenset[ADLVariable], set[ADLVariable]], dict[frozenset[ADLVariable], set[ADLVariable]]]:
         if not isinstance(self.eval_node, ADLVariable) or not isinstance(self.given_node, ADLVariable):
             raise TycheLanguageException(
                 f"`variable_equivalence_classes` can only be called on simple `ADLNode`s; terms are "
                 f"{type(self.eval_node).__name__} and {type(self.given_node).__name__}"
             )
-        return frozenset(), frozenset([frozenset([self.eval_node, self.given_node])])
+        # child nodes should only be free variables if they are not required in the equations; include only concepts in the actual equivalence class
+        return {}, {frozenset([self.eval_node, self.given_node]): {node for node in [self.eval_node, self.given_node] if isinstance(node, Concept)}}
     
     def modality_variables(self) -> dict[Role, frozenset[ADLVariable]]:
         if not isinstance(self.eval_node, ADLVariable) or not isinstance(self.given_node, ADLVariable):
