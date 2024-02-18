@@ -17,7 +17,7 @@ from sympy import Expr as SympyExpr
 
 from tyche.language import ADLVariable, CompatibleWithRule, EquationsObj, ExclusiveRoleDist, Rule, RuleValue, SimpleRuleValue, TycheLanguageException, TycheContext, Concept, ADLNode, Expectation, \
     Role, RoleDistributionEntries, ALWAYS, CompatibleWithADLNode, CompatibleWithRole, NEVER, Constant, Given, \
-    ReferenceBackedRole, RoleDist, VariableBounds
+    ReferenceBackedRole, RoleDist
 
 from tyche.probability import uncertain_bayes_rule
 from tyche.references import SymbolReference, FieldSymbolReference, GuardedSymbolReference, FunctionSymbolReference, \

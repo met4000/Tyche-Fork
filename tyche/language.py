@@ -5,7 +5,7 @@ logic (ADL) sentences, and the maths for their evaluation.
 from __future__ import annotations
 from dataclasses import dataclass
 from math import isnan
-from typing import Final, Sequence, cast, Optional, Union, NewType, TypeVar, Iterable, Callable
+from typing import Final, Sequence, cast, Optional, Union, TypeVar, Iterable, Callable
 
 import numpy as np
 
