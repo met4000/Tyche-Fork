@@ -4,7 +4,7 @@ from typing import Callable, Literal, Optional
 
 from sympy import Expr as SympyExpr
 
-from tyche.solvers.solvers import OutputType, ResultType, TycheEquationSolver, TycheSolversException
+from tyche.solvers.base import OutputType, ResultType, TycheEquationSolver, TycheSolversException
 
 try:
     from wolframclient.evaluation import WolframLanguageSession, WolframKernelEvaluationResult
