@@ -1537,6 +1537,10 @@ class Role:
             return Role(role)
         else:
             raise TycheLanguageException("Incompatible role type {}".format(type(role).__name__))
+    
+    def symbol_as_var(self):
+        var = self.symbol
+        return var
 
     def __str__(self):
         return self.symbol
@@ -2044,9 +2048,6 @@ class Expectation(ADLNode):
         eq_0_var = FreeVariable(str(free_variable_index))
         free_variable_index += 1
 
-        world_prob_var = FreeVariable(str(free_variable_index))
-        free_variable_index += 1
-
         def wrap(v: str) -> str:
             return v if simplify else f"({v})"
         
@@ -2074,7 +2075,7 @@ class Expectation(ADLNode):
             # First equation is derived from how expectations are evaluated.
             # Second equation is derived from the paper, and handles the given being always false.
 
-            world_var_terms = {i: var_wrapper(Concept.symbol_with_world(world_prob_var.symbol_as_var(), str(i))) for i in range(1, n_terms + 1)}
+            world_var_terms = {i: var_wrapper(Concept.symbol_with_world(self.role.symbol_as_var(), str(i))) for i in range(1, n_terms + 1)}
             eval_var_terms = {i: not_null(obj.expression) for i, obj in eval_objs.items()}
             given_var_terms = {i: not_null(obj.expression) for i, obj in given_objs.items()}
             
